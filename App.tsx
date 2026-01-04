@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useEffect } from 'react';
 import ReactFlow, {
   Background,
   Controls,
@@ -30,80 +30,97 @@ import { ProjectControls } from './components/ProjectControls';
 import { PSDNodeData } from './types';
 import { ProceduralStoreProvider } from './store/ProceduralContext';
 
-const initialNodes: Node<PSDNodeData>[] = [
+const INITIAL_NODES: Node<PSDNodeData>[] = [
+  // 1. Knowledge Column (X: ~90)
   {
-    id: 'node-1',
+    id: 'node-knowledge-1',
+    type: 'knowledge',
+    position: { x: 92, y: -350 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+  
+  // 2. Inspector Column (X: 450 - Aligned with Col 2)
+  {
+    id: 'node-inspector-1',
+    type: 'knowledgeInspector',
+    position: { x: 450, y: -350 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+
+  // 3. Source Column (X: 50)
+  {
+    id: 'node-1', // Load PSD
     type: 'loadPsd',
     position: { x: 50, y: 50 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
-    id: 'node-knowledge-1',
-    type: 'knowledge',
-    position: { x: 50, y: 350 },
-    data: { fileName: null, template: null, validation: null, designLayers: null },
-  },
-  {
-    id: 'node-inspector-1',
-    type: 'knowledgeInspector',
-    position: { x: 400, y: 350 },
-    data: { fileName: null, template: null, validation: null, designLayers: null },
-  },
-  {
     id: 'node-target-1',
     type: 'targetTemplate',
-    position: { x: 650, y: 50 },
+    position: { x: 50, y: 450 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
+
+  // 4. Structure & Metadata Column (X: 450)
   {
-    id: 'node-2',
+    id: 'node-info-1',
     type: 'designInfo',
-    position: { x: 350, y: 50 },
+    position: { x: 450, y: 50 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
-    id: 'node-3',
+    id: 'node-template-splitter-1',
     type: 'templateSplitter',
-    position: { x: 350, y: 650 }, // Moved down to avoid overlap
+    position: { x: 450, y: 450 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
+
+  // 5. Logic & Resolution Column (X: 870 - shifted for spacing)
   {
-    id: 'node-4',
+    id: 'node-resolver-1',
     type: 'containerResolver',
-    position: { x: 950, y: 450 },
+    position: { x: 870, y: 50 },
     data: { 
       fileName: null, 
       template: null, 
       validation: null, 
       designLayers: null,
-      channelCount: 10 // Initial state for persistence
+      channelCount: 10 
     },
   },
   {
+    id: 'node-target-splitter-1',
+    type: 'targetSplitter',
+    position: { x: 870, y: 450 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+
+  // 6. Procedural Intelligence Pipeline (Linear Flow)
+  {
     id: 'node-analyst-1', 
     type: 'designAnalyst',
-    position: { x: 1300, y: 300 },
+    position: { x: 1562, y: 248 },
     data: { fileName: null, template: null, validation: null, designLayers: null },
     style: { width: 650 },
   },
   {
     id: 'node-remapper-1',
     type: 'remapper',
-    position: { x: 1650, y: 400 },
+    position: { x: 2300, y: 248 }, // Adjusted to 2300 (buffer > 80px from Analyst end at 2212)
     data: { 
       fileName: null, 
       template: null, 
       validation: null, 
       designLayers: null, 
       remapperConfig: { targetContainerName: null },
-      instanceCount: 1 // Initial state for persistence
+      instanceCount: 1 
     },
     style: { width: 500 }
   },
   {
     id: 'node-reviewer-1', 
     type: 'designReviewer',
-    position: { x: 2200, y: 400 }, 
+    position: { x: 2900, y: 248 }, // Adjusted to 2900 (buffer > 100px from Remapper end at 2800)
     data: { 
         fileName: null, template: null, validation: null, designLayers: null,
         instanceCount: 1 
@@ -113,36 +130,32 @@ const initialNodes: Node<PSDNodeData>[] = [
   {
     id: 'node-preview-1',
     type: 'containerPreview',
-    position: { x: 2750, y: 350 }, // Positioned after Reviewer, before Export
+    position: { x: 3500, y: 248 }, // Adjusted to 3500 (buffer > 120px from Reviewer end at 3380)
     data: { fileName: null, template: null, validation: null, designLayers: null },
     style: { width: 650, height: 500 },
   },
   {
-    id: 'node-5',
-    type: 'targetSplitter',
-    position: { x: 1300, y: 50 },
-    data: { fileName: null, template: null, validation: null, designLayers: null },
-  },
-  {
     id: 'node-export-1',
     type: 'exportPsd',
-    position: { x: 3150, y: 400 }, // Shifted right to accommodate full pipeline
+    position: { x: 4250, y: 248 }, // Adjusted to 4250 (buffer > 100px from Preview end at 4150)
     data: { fileName: null, template: null, validation: null, designLayers: null },
   }
 ];
 
-const initialEdges: Edge[] = [
-    { id: 'e1-2', source: 'node-1', target: 'node-2' },
-    { id: 'e1-3', source: 'node-1', target: 'node-3' },
-    // Connect Target Template (Metadata Out) to Target Splitter (Template Input)
+const INITIAL_EDGES: Edge[] = [
+    // Source -> Info
+    { id: 'e-load-info', source: 'node-1', target: 'node-info-1' },
+    // Source -> Template Splitter
+    { id: 'e-load-template-splitter', source: 'node-1', target: 'node-template-splitter-1' },
+    // Target Template -> Target Splitter
     { 
-      id: 'e-target-1-5', 
+      id: 'e-target-target-splitter', 
       source: 'node-target-1', 
-      target: 'node-5', 
+      target: 'node-target-splitter-1', 
       sourceHandle: 'target-metadata-out',
       targetHandle: 'template-input'
     },
-    // Connect Knowledge to Inspector
+    // Knowledge -> Inspector
     {
       id: 'e-knowledge-inspector',
       source: 'node-knowledge-1',
@@ -152,9 +165,34 @@ const initialEdges: Edge[] = [
     }
 ];
 
+const getInitialNodes = (): Node<PSDNodeData>[] => {
+  try {
+    const saved = localStorage.getItem('psd_graph_layout');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed;
+      }
+    }
+  } catch (err) {
+    console.warn("Failed to retrieve graph layout from storage", err);
+  }
+  return INITIAL_NODES;
+};
+
 const App: React.FC = () => {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(getInitialNodes());
+  const [edges, setEdges, onEdgesChange] = useEdgesState(INITIAL_EDGES);
+
+  // Persistence logic for layout state
+  useEffect(() => {
+    const saveLayout = setTimeout(() => {
+        if (nodes.length > 0) {
+            localStorage.setItem('psd_graph_layout', JSON.stringify(nodes));
+        }
+    }, 1000); // Debounce saves
+    return () => clearTimeout(saveLayout);
+  }, [nodes]);
 
   const onConnect = useCallback(
     (params: Connection) => {
@@ -314,10 +352,10 @@ const App: React.FC = () => {
     remapper: RemapperNode,
     designAnalyst: DesignAnalystNode, 
     designReviewer: DesignReviewerNode,
-    containerPreview: ContainerPreviewNode, // Registered new node
+    containerPreview: ContainerPreviewNode, 
     exportPsd: ExportPSDNode,
     knowledge: KnowledgeNode,
-    knowledgeInspector: KnowledgeInspectorNode, // Registered new node
+    knowledgeInspector: KnowledgeInspectorNode, 
   }), []);
 
   return (
