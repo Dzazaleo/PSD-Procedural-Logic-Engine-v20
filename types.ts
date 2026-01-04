@@ -194,6 +194,7 @@ export interface TransformedPayload {
   // Phase 4B: Procedural Enforcement
   directives?: string[]; 
   isMandatory?: boolean; // True if Generation is forced by Directive
+  knowledgeApplied?: boolean; // Flag for Strict AI Governance check
   
   // Phase 4C: Surgical Logic
   replaceLayerId?: string | null; // Track if a specific layer was swapped

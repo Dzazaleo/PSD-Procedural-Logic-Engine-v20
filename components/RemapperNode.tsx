@@ -3,7 +3,7 @@ import { Handle, Position, NodeProps, useEdges, useReactFlow, useNodes, useUpdat
 import { PSDNodeData, SerializableLayer, TransformedPayload, TransformedLayer, MAX_BOUNDARY_VIOLATION_PERCENT, LayoutStrategy, LayerOverride } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 import { GoogleGenAI } from "@google/genai";
-import { Check, Sparkles, Info, Layers, Box, Cpu, BookOpen, Link as LinkIcon } from 'lucide-react';
+import { Check, Sparkles, Info, Layers, Box, Cpu, BookOpen, Link as LinkIcon, Ban } from 'lucide-react';
 
 interface InstanceData {
   index: number;
@@ -25,6 +25,7 @@ interface InstanceData {
   };
   payload: TransformedPayload | null;
   strategyUsed?: boolean;
+  violation?: string; // NEW: Track governance violations
 }
 
 // --- SUB-COMPONENT: Generative Preview Overlay ---
@@ -359,6 +360,15 @@ const RemapperInstanceRow = memo(({
                           </div>
                           <span className="text-[10px] text-slate-400 font-mono">{audit ? `${audit.total} Nodes • ` : ''}{instance.payload.scaleFactor.toFixed(2)}x Scale</span>
                       </div>
+                      
+                      {/* Violation Badge */}
+                      {instance.violation && (
+                        <div className="mt-2 text-[10px] bg-red-900/50 text-red-200 border border-red-500/50 px-2 py-1 rounded flex items-center gap-2 animate-pulse">
+                            <Ban className="w-3 h-3 text-red-400" />
+                            <span className="font-bold tracking-wide">{instance.violation}</span>
+                        </div>
+                      )}
+
                       <div className={`w-full h-1 rounded overflow-hidden mt-1 ${instance.strategyUsed ? 'bg-pink-900' : 'bg-slate-900'}`}>
                          <div className={`h-full ${instance.strategyUsed ? 'bg-pink-500' : 'bg-emerald-500'}`} style={{ width: '100%' }}></div>
                       </div>
@@ -372,7 +382,7 @@ const RemapperInstanceRow = memo(({
                       {isInspectorOpen && instance.source.layers && instance.source.originalBounds && instance.target.bounds && instance.source.aiStrategy && (
                           <OverrideInspector sourceLayers={instance.source.layers} sourceBounds={instance.source.originalBounds} targetBounds={instance.target.bounds} strategy={instance.source.aiStrategy} />
                       )}
-                      {showOverlay && (
+                      {showOverlay && !instance.violation && (
                           <div className="mt-2 p-2 bg-slate-900/50 border border-slate-700 rounded flex flex-col space-y-2">
                               {isAwaiting && <span className="text-[9px] text-yellow-200 font-medium leading-tight">⚠️ High procedural distortion.</span>}
                               {refinementPending && <div className="flex items-center space-x-1.5 p-1.5 bg-indigo-900/40 border border-indigo-500/30 rounded mb-1 animate-pulse"><svg className="w-3 h-3 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg><span className="text-[9px] text-indigo-200 font-medium leading-none">Refinement detected. Re-confirm to apply.</span></div>}
@@ -481,6 +491,7 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
 
             let payload: TransformedPayload | null = null;
             let strategyUsed = false;
+            let violation: string | undefined = undefined;
 
             if (sourceData.ready && targetData.ready) {
                 const sourceRect = sourceData.originalBounds;
@@ -585,17 +596,22 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
                 const isConfirmed = isMandatory || (!!currentPrompt && currentPrompt === confirmedPrompt);
 
                 if (currentPrompt && effectiveAllowed) {
-                    if (isConfirmed) {
-                        requiresGeneration = true;
-                        status = 'success';
-                    } else if (strategy?.isExplicitIntent || scale > 2.0) {
-                        status = 'awaiting_confirmation';
+                    // NEW: AUTHORITY CHECK
+                    const isAuthorized = strategy?.directives?.includes('MANDATORY_GEN_FILL') || (strategy?.knowledgeApplied && strategy?.method !== 'GEOMETRIC');
+                    
+                    if (isAuthorized) {
+                         if (isConfirmed) {
+                             requiresGeneration = true;
+                             status = 'success';
+                         } else if (strategy?.isExplicitIntent || scale > 2.0) {
+                             status = 'awaiting_confirmation';
+                         }
+                    } else {
+                        // DETECT VIOLATION
+                        violation = "AI FORBIDDEN: LACKS KNOWLEDGE AUTHORITY";
                     }
                 }
 
-                // REMOVED: Legacy additive injection (unshift) is gone.
-                // Surgical swap logic inside transformLayers now handles asset placement.
-                
                 const storePayload = payloadRegistry[id]?.[`result-out-${i}`];
                 
                 // STALE GUARD: If strategy is missing (Analyst reset), don't inherit AI artifacts
@@ -622,10 +638,11 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
                     generationAllowed: effectiveAllowed,
                     directives: strategy?.directives, // Propagate Directives
                     isMandatory: isMandatory, // Propagate Mandatory Flag
-                    replaceLayerId: strategy?.replaceLayerId // Track swapped ID
+                    replaceLayerId: strategy?.replaceLayerId, // Track swapped ID
+                    knowledgeApplied: strategy?.knowledgeApplied // Persist Authority Flag
                 };
             }
-            result.push({ index: i, source: sourceData, target: targetData, payload, strategyUsed });
+            result.push({ index: i, source: sourceData, target: targetData, payload, strategyUsed, violation });
         }
         return result;
     }, [instanceCount, edges, id, resolvedRegistry, templateRegistry, nodes, confirmations, payloadRegistry, globalGenerationAllowed, instanceSettings]);
@@ -660,7 +677,8 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
     useEffect(() => {
         instances.forEach(instance => {
             const idx = instance.index;
-            if (!instance.payload?.generationAllowed) {
+            // Immediate Abort on Violation or Disabled
+            if (!instance.payload?.generationAllowed || instance.violation) {
                 if (isGeneratingPreview[idx]) setIsGeneratingPreview(prev => ({...prev, [idx]: false}));
                 return;
             }

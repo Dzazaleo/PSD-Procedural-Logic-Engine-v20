@@ -14,7 +14,7 @@ type ModelKey = 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
 const DEFAULT_INSTANCE_STATE: AnalystInstanceState = {
     chatHistory: [],
     layoutStrategy: null,
-    selectedModel: 'gemini-3-flash',
+    selectedModel: 'gemini-3-pro',
     isKnowledgeMuted: false
 };
 
@@ -669,13 +669,18 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         Ignore any rules belonging to other containers (e.g., if analyzing REEL, ignore BONUS or UI rules) to prevent cross-contamination.
 
         INTUITION FALLBACK PROTOCOL:
-        If the provided Knowledge Scoping pass yields no specific results for the container "${targetData.name}", you must revert to your primary persona as a 'Senior Visual Systems Lead.' 
-        Use your expert design intuition to solve for balance, hierarchy, and optical weight.
+        If no specific Knowledge rules are found for the container, you MUST default to method: 'GEOMETRIC'. 
+        You are strictly forbidden from selecting GENERATIVE or HYBRID methods based on intuition or user refinement alone. 
+        These methods are only permitted if a rule in the [START KNOWLEDGE] block explicitly requires AI synthesis (e.g., 'Background must be AI-generated').
 
         GROUNDING PROTOCOL:
         1. Link every visual observation to a Metadata ID [layer-ID] using the deterministic path IDs provided in the JSON hierarchy.
         2. Use the Image for visual auditing and JSON for coordinate mapping.
         3. The top-left corner (0,0) of your visual workspace is the top-left of the Target Container (${targetData.name}).
+        
+        STRICT AI GOVERNANCE:
+        - Do not generate prompts based on user chat unless backed by a Knowledge Rule.
+        - If method is 'GEOMETRIC', 'generativePrompt' MUST be empty string.
 
         OPERATIONAL CONSTRAINTS:
         - NO NEW ELEMENTS: Strictly forbidden unless 'GENERATIVE' method is forced by Knowledge.
@@ -686,7 +691,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
           * This is the ONLY context where deletion/replacement is permitted.
         - GENERATIVE PROMPT PURITY: If generating a replacement texture, your 'generativePrompt' must be explicit: "Analyze and regenerate the texture for [insert layer-ID here] only. Maintain the aesthetic style of the provided image but exclude all other container elements."
         - NO CROPPING: Strictly forbidden. Use scale and position only.
-        - METHOD 'GEOMETRIC': 'generativePrompt' MUST be "".
 
         JSON OUTPUT RULES:
         - Leading reasoning must justify 'overrides' by citing specific brand constraints (if found) or expert intuition.

@@ -98,6 +98,26 @@ const reconcileTerminalState = (
         };
     }
 
+    // --- PHASE 4C: STRICT AI GOVERNANCE (Soft Lock) ---
+    // If generation is requested but lacks explicit Knowledge Authority, force a soft lock.
+    if (incomingPayload.requiresGeneration) {
+        const hasAuthority = 
+            incomingPayload.directives?.includes('MANDATORY_GEN_FILL') || 
+            incomingPayload.knowledgeApplied === true;
+
+        if (!hasAuthority) {
+            return {
+                ...incomingPayload,
+                requiresGeneration: false, // Block generation
+                isSynthesizing: false,
+                previewUrl: undefined,
+                isConfirmed: false,
+                isTransient: false,
+                // Fallback to geometric state
+            };
+        }
+    }
+
     // --- PHASE 4B: MANDATORY AUTO-CONFIRMATION ---
     // If specific directives enforce generation, we bypass the confirmation queue.
     const hasMandatoryDirective = incomingPayload.directives?.includes('MANDATORY_GEN_FILL');
