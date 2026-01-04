@@ -1,11 +1,10 @@
 import React, { memo, useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Handle, Position, NodeProps, useEdges, NodeResizer, useReactFlow, useUpdateNodeInternals, useNodes } from 'reactflow';
-import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystInstanceState, ContainerContext, TemplateMetadata, ContainerDefinition, MappingContext, KnowledgeContext } from '../types';
+import { Handle, Position, NodeProps, useEdges, NodeResizer, useUpdateNodeInternals, useNodes, useReactFlow } from 'reactflow';
+import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystInstanceState, ContainerDefinition, MappingContext, InspectedKnowledgeContext, TemplateMetadata } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject, findLayerByPath } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Brain, BrainCircuit, Ban, ClipboardList, AlertCircle, RefreshCw, RotateCcw, Play } from 'lucide-react';
-import { Psd } from 'ag-psd';
+import { Brain, BrainCircuit, Ban, AlertCircle, RefreshCw, RotateCcw, Play, MessageSquare } from 'lucide-react';
 
 // Define the exact union type for model keys to match PSDNodeData
 type ModelKey = 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
@@ -49,7 +48,6 @@ const MODELS: Record<ModelKey, ModelConfig> = {
 };
 
 // --- Subcomponent: Strategy Card Renderer ---
-// UPDATED: Added Directives section to visualize extracted mandatory rules
 const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfig }> = ({ strategy, modelConfig }) => {
     const overrideCount = strategy.overrides?.length || 0;
     const directives = strategy.directives || [];
@@ -168,8 +166,7 @@ const InstanceRow: React.FC<any> = ({
         }
     }, [state.chatHistory.length, isAnalyzing]);
 
-    // NEW: Robust Event Isolation
-    // Stops wheel events from propagating to React Flow canvas to prevent zooming
+    // Stops wheel events from propagating to React Flow canvas
     useEffect(() => {
         const container = chatContainerRef.current;
         if (!container) return;
@@ -178,12 +175,8 @@ const InstanceRow: React.FC<any> = ({
             e.stopPropagation();
         };
 
-        // Use native listener with passive: false to ensure we can intercept effectively if needed
         container.addEventListener('wheel', handleWheel, { passive: false });
-
-        return () => {
-            container.removeEventListener('wheel', handleWheel);
-        };
+        return () => container.removeEventListener('wheel', handleWheel);
     }, []);
     
     const getPreviewStyle = (w: number, h: number, color: string) => {
@@ -223,7 +216,7 @@ const InstanceRow: React.FC<any> = ({
                                     ? 'bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-400' 
                                     : 'bg-teal-900/30 text-teal-400 border-teal-500/30 hover:bg-teal-900/50 animate-pulse-slow'
                             }`}
-                            title={state.isKnowledgeMuted ? "Knowledge Muted (Geometric Mode)" : "Knowledge Active"}
+                            title={state.isKnowledgeMuted ? "Knowledge Muted (Geometric Mode)" : "Semantic Stream Active"}
                         >
                             {state.isKnowledgeMuted ? <BrainCircuit className="w-3 h-3 opacity-50" /> : <Brain className="w-3 h-3" />}
                         </button>
@@ -340,14 +333,14 @@ const InstanceRow: React.FC<any> = ({
                             {activeKnowledge && !state.isKnowledgeMuted && (
                                 <span className="text-[9px] text-teal-400 font-bold ml-1 flex items-center gap-1">
                                     <Brain className="w-3 h-3" />
-                                    + Rules & Anchors
+                                    + Semantic Rules
                                 </span>
                             )}
                         </div>
                     )}
                 </div>
 
-                {/* Control Footer (No Input) */}
+                {/* Control Footer */}
                 <div className="flex items-center space-x-2 pt-2 border-t border-slate-700/30">
                      <button 
                         onClick={(e) => { e.stopPropagation(); onAnalyze(index); }} 
@@ -369,7 +362,6 @@ const InstanceRow: React.FC<any> = ({
 };
 
 export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
-  // ... (Hooks and Standard Logic) ...
   const [analyzingInstances, setAnalyzingInstances] = useState<Record<number, boolean>>({});
   const instanceCount = data.instanceCount || 1;
   const analystInstances = data.analystInstances || {};
@@ -378,7 +370,16 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   const nodes = useNodes(); 
   const { setNodes } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
-  const { resolvedRegistry, templateRegistry, knowledgeRegistry, registerResolved, registerTemplate, unregisterNode, psdRegistry, flushPipelineInstance } = useProceduralStore();
+  const { 
+    resolvedRegistry, 
+    templateRegistry, 
+    inspectedKnowledgeRegistry, // CHANGED: Consume filtered middleware knowledge
+    registerResolved, 
+    registerTemplate, 
+    unregisterNode, 
+    psdRegistry, 
+    flushPipelineInstance 
+  } = useProceduralStore();
 
   useEffect(() => {
     return () => unregisterNode(id);
@@ -388,7 +389,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     updateNodeInternals(id);
   }, [id, instanceCount, updateNodeInternals]);
 
-  // ... (Active Container Name Logic, Title Suffix, Knowledge Discovery, Helpers) ...
   const activeContainerNames = useMemo(() => {
     const names: string[] = [];
     for (let i = 0; i < instanceCount; i++) {
@@ -406,11 +406,13 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     
   const titleSuffix = activeContainerNames.length > 0 ? `(${activeContainerNames.join(', ')})` : '(Waiting...)';
 
+  // UPDATED: Logic to retrieve knowledge from Inspector Middleware
   const activeKnowledge = useMemo(() => {
     const edge = edges.find(e => e.target === id && e.targetHandle === 'knowledge-in');
     if (!edge) return null;
-    return knowledgeRegistry[edge.source];
-  }, [edges, id, knowledgeRegistry]);
+    // Look up in the INSPECTED registry, using the Source ID (which is the Inspector Node ID)
+    return inspectedKnowledgeRegistry[edge.source];
+  }, [edges, id, inspectedKnowledgeRegistry]);
 
   const getSourceData = useCallback((index: number) => {
     const edge = edges.find(e => e.target === id && e.targetHandle === `source-in-${index}`);
@@ -432,7 +434,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     return container ? { bounds: container.bounds, name: container.name } : null;
   }, [edges, id, templateRegistry]);
 
-  // UPDATED: Surgical Vision Logic (Isolation Aware)
   const extractSourcePixels = async (
       layers: SerializableLayer[], 
       bounds: {x: number, y: number, w: number, h: number},
@@ -449,25 +450,20 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
       const ctx = canvas.getContext('2d');
       if (!ctx) return null;
 
-      // Clean Room Setup
       ctx.clearRect(0, 0, bounds.w, bounds.h);
 
-      // ISOLATION MODE: If strict isolation is requested via targetLayerId
       if (targetLayerId) {
           const targetLayer = findLayerByPath(psd, targetLayerId);
           if (targetLayer && targetLayer.canvas) {
               const dx = (targetLayer.left || 0) - bounds.x;
               const dy = (targetLayer.top || 0) - bounds.y;
               ctx.drawImage(targetLayer.canvas, dx, dy);
-              // EXPLICIT RETURN: Bypass the recursive loop to ensure no other pixels bleed in.
               return canvas.toDataURL('image/png');
           }
-          // If strict targeting fails, return null to avoid dirty merged output
           console.warn("Target layer isolation failed for:", targetLayerId);
           return null; 
       }
 
-      // COMPOSITION MODE: Standard Recursive Draw (Full Context)
       const drawLayers = (layerNodes: SerializableLayer[]) => {
           for (let i = layerNodes.length - 1; i >= 0; i--) {
               const node = layerNodes[i];
@@ -488,7 +484,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
       return canvas.toDataURL('image/png');
   };
 
-  // ... (Store Sync, Action Handlers) ...
   useEffect(() => {
     const syntheticContainers: ContainerDefinition[] = [];
     let canvasDims = { width: 0, height: 0 };
@@ -500,7 +495,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
 
         if (sourceData) {
             const history = instanceState.chatHistory || [];
-            // Basic detection for initial prompt keywords (though simplified now)
             const hasExplicitKeywords = history.some(msg => msg.role === 'user' && /\b(generate|recreate|nano banana)\b/i.test(msg.parts[0].text));
             
             const augmentedContext: MappingContext = {
@@ -576,11 +570,8 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     }));
   }, [id, setNodes]);
   
-  // NEW: Reset Handler with Deep Pipeline Flush
   const handleReset = useCallback((index: number) => {
-      // 1. Revert to Default State (Clears Chat & Strategy)
       updateInstanceState(index, DEFAULT_INSTANCE_STATE);
-      // 2. FORCE PIPELINE FLUSH: Clear downstream registries immediately to remove stale AI artifacts
       flushPipelineInstance(id, `source-out-${index}`);
   }, [updateInstanceState, flushPipelineInstance, id]);
 
@@ -619,8 +610,8 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
      }
   };
 
-  // ... (System Instruction & Analysis Logic - same as before) ...
-  const generateSystemInstruction = (sourceData: any, targetData: any, isRefining: boolean, knowledgeContext: KnowledgeContext | null) => {
+  // UPDATED: System Instruction Generation now consumes InspectedKnowledgeContext
+  const generateSystemInstruction = (sourceData: any, targetData: any, isRefining: boolean, knowledgeContext: InspectedKnowledgeContext | null) => {
     const sourceW = sourceData.container.bounds.w;
     const sourceH = sourceData.container.bounds.h;
     const targetW = targetData.bounds.w;
@@ -664,14 +655,14 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         
         KNOWLEDGE SCOPING PROTOCOL:
         You are analyzing the specific container: "${targetData.name}".
-        Within the GLOBAL PROJECT KNOWLEDGE (if provided below), you must act as a 'Knowledge Scout.' 
+        Within the INSPECTED PROJECT RULES (if provided below), you must act as a 'Knowledge Scout.' 
         Search only for sections, headers, or bullet points that semantically relate to "${targetData.name}" or its direct visual function. 
         Ignore any rules belonging to other containers (e.g., if analyzing REEL, ignore BONUS or UI rules) to prevent cross-contamination.
 
         INTUITION FALLBACK PROTOCOL:
         If no specific Knowledge rules are found for the container, you MUST default to method: 'GEOMETRIC'. 
         You are strictly forbidden from selecting GENERATIVE or HYBRID methods based on intuition or user refinement alone. 
-        These methods are only permitted if a rule in the [START KNOWLEDGE] block explicitly requires AI synthesis (e.g., 'Background must be AI-generated').
+        These methods are only permitted if a rule in the [START INSPECTED RULES] block explicitly requires AI synthesis.
 
         GROUNDING PROTOCOL:
         1. Link every visual observation to a Metadata ID [layer-ID] using the deterministic path IDs provided in the JSON hierarchy.
@@ -688,8 +679,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         - SURGICAL SWAP EXCEPTION: If 'GENERATIVE' or 'HYBRID' method is selected, you MAY identify one specific 'replaceLayerId' from the input to be replaced by the AI output.
           * TEXTURE ISOLATION: When specifying a 'replaceLayerId' for a background swap, ensure you target the deepest specific texture layer, avoiding groups that contain foreground UI elements.
           * The AI output will inherit the Z-index and name of the 'replaceLayerId'.
-          * This is the ONLY context where deletion/replacement is permitted.
-        - GENERATIVE PROMPT PURITY: If generating a replacement texture, your 'generativePrompt' must be explicit: "Analyze and regenerate the texture for [insert layer-ID here] only. Maintain the aesthetic style of the provided image but exclude all other container elements."
         - NO CROPPING: Strictly forbidden. Use scale and position only.
 
         JSON OUTPUT RULES:
@@ -697,15 +686,15 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         - 'knowledgeApplied' must be set to true if Knowledge rules were explicitly used.
         - RULE ATTRIBUTION: If 'knowledgeApplied' is true, every object in the 'overrides' array MUST include a 'citedRule' string (a concise summary of the specific brand rule applied).
         - ANCHOR REFERENCING: If a visual anchor influenced the decision, include 'anchorIndex' (integer) referencing the 0-based index of the provided visual anchor.
-        - FALLBACK LOGIC: If a conflict exists between a textual rule and a visual anchor, prioritize the textual rule but note the conflict in the 'reasoning'.
         - Your 'overrides' must accurately map to the 'layerId' strings provided in the hierarchy.
     `;
     
+    // UPDATED: Use rules from InspectedKnowledgeContext
     if (knowledgeContext && knowledgeContext.rules) {
         prompt = `
-        [START KNOWLEDGE]
+        [START INSPECTED RULES]
         ${knowledgeContext.rules}
-        [END KNOWLEDGE]
+        [END INSPECTED RULES]
         
         ` + prompt;
     }
@@ -739,15 +728,10 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
 
         if (lastMessage.role === 'user') {
             const newParts: any[] = [];
-            if (effectiveKnowledge?.visualAnchors) {
-                effectiveKnowledge.visualAnchors.forEach((anchor, idx) => {
-                    newParts.push({ text: `[VISUAL_ANCHOR_${idx}]` });
-                    newParts.push({ inlineData: { mimeType: anchor.mimeType, data: anchor.data } });
-                });
-                if (effectiveKnowledge.visualAnchors.length > 0) {
-                    newParts.push({ text: "REFERENCED VISUAL ANCHORS (Strict Style & Layout Adherence Required. Reference by index in 'anchorIndex'):" });
-                }
-            }
+            
+            // NOTE: Visual Anchors are no longer passed from InspectedKnowledgeContext (Pure Semantic Stream)
+            // We focus purely on textual rules derived from the Inspector.
+
             if (sourcePixelsBase64) {
                 const base64Clean = sourcePixelsBase64.split(',')[1];
                 newParts.push({ inlineData: { mimeType: 'image/png', data: base64Clean } });
@@ -823,23 +807,18 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
 
         const json = JSON.parse(response.text || '{}');
         
-        // --- POST-PROCESSING: Surgical Vision Grounding ---
-        // If the AI identifies a replacement target, we must isolate that texture to prevent merged hallucinations.
         if ((json.method === 'GENERATIVE' || json.method === 'HYBRID') && json.replaceLayerId) {
              const isolatedTexture = await extractSourcePixels(
                  sourceData.layers as SerializableLayer[], 
                  sourceData.container.bounds,
-                 json.replaceLayerId // Target specific layer
+                 json.replaceLayerId
              );
-             
              if (isolatedTexture) {
                  json.sourceReference = isolatedTexture.split(',')[1];
-             } else {
-                 // Fallback to full context if isolation fails (though rare if ID is valid)
-                 if (sourcePixelsBase64) json.sourceReference = sourcePixelsBase64.split(',')[1];
+             } else if (sourcePixelsBase64) {
+                 json.sourceReference = sourcePixelsBase64.split(',')[1];
              }
         } else if (json.method === 'GENERATIVE' || json.method === 'HYBRID') {
-             // Default behavior: Attach full visual context if no specific target
              if (sourcePixelsBase64) {
                  json.sourceReference = sourcePixelsBase64.split(',')[1];
              }
@@ -859,7 +838,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         
         updateInstanceState(index, { chatHistory: finalHistory, layoutStrategy: json });
 
-        // Basic detection for initial prompt keywords (though simplified now)
         const isExplicitIntent = history.some(msg => msg.role === 'user' && /\b(generate|recreate|nano banana)\b/i.test(msg.parts[0].text));
         
         const augmentedContext: MappingContext = {
@@ -926,7 +904,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
                 <span className="text-sm font-bold text-purple-100">Design Analyst</span>
                 {activeKnowledge && (
                     <span className="text-[9px] bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded font-bold tracking-wider">
-                        KNOWLEDGE LINKED
+                        SEMANTIC STREAM
                     </span>
                 )}
              </div>
