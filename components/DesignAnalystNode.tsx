@@ -4,7 +4,7 @@ import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystIns
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject, findLayerByPath } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Brain, BrainCircuit, Ban, AlertCircle, RefreshCw, RotateCcw, Play, MessageSquare } from 'lucide-react';
+import { Brain, BrainCircuit, Ban, AlertCircle, RefreshCw, Play, Send, Eraser } from 'lucide-react';
 
 // Define the exact union type for model keys to match PSDNodeData
 type ModelKey = 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
@@ -97,7 +97,7 @@ const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfi
                  <div className="flex items-center space-x-1.5 p-1 bg-teal-900/30 border border-teal-500/30 rounded mt-1">
                      <Brain className="w-3 h-3 text-teal-400" />
                      <span className="text-[9px] text-teal-300 font-bold uppercase tracking-wider">
-                         Knowledge Informed
+                         Semantic Stream Applied
                      </span>
                  </div>
              )}
@@ -151,8 +151,9 @@ const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfi
 };
 
 const InstanceRow: React.FC<any> = ({ 
-    nodeId, index, state, sourceData, targetData, onAnalyze, onModelChange, onToggleMute, onReset, isAnalyzing, compactMode, activeKnowledge 
+    nodeId, index, state, sourceData, targetData, onAnalyze, onRefine, onModelChange, onToggleMute, isAnalyzing, compactMode, activeKnowledge 
 }) => {
+    const [inputText, setInputText] = useState('');
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const activeModelConfig = MODELS[state.selectedModel as ModelKey];
     const isReady = !!sourceData && !!targetData;
@@ -189,6 +190,12 @@ const InstanceRow: React.FC<any> = ({
         return { width: `${styleW}px`, height: `${styleH}px`, borderColor: color };
     };
 
+    const handleRefineClick = () => {
+        if (!inputText.trim()) return;
+        onRefine(index, inputText);
+        setInputText('');
+    };
+
     return (
         <div className={`relative border-b border-slate-700/50 bg-slate-800/30 first:border-t-0 ${compactMode ? 'py-2' : ''}`}>
              {/* Instance Header */}
@@ -221,15 +228,6 @@ const InstanceRow: React.FC<any> = ({
                             {state.isKnowledgeMuted ? <BrainCircuit className="w-3 h-3 opacity-50" /> : <Brain className="w-3 h-3" />}
                         </button>
                     )}
-
-                    {/* Reset Button */}
-                    <button
-                        onClick={(e) => { e.stopPropagation(); onReset(index); }}
-                        className="nodrag nopan p-1 rounded transition-colors bg-slate-800 text-slate-500 border border-slate-700 hover:text-red-400 hover:border-red-900/50"
-                        title="Reset Instance (Clear History & Strategy)"
-                    >
-                        <RotateCcw className="w-3 h-3" />
-                    </button>
 
                     {/* Model Selector */}
                     <div className="relative">
@@ -270,7 +268,7 @@ const InstanceRow: React.FC<any> = ({
                             <div className="border-2 border-dashed flex items-center justify-center bg-indigo-500/10 transition-all duration-300" style={sourceData ? getPreviewStyle(sourceData.container.bounds.w, sourceData.container.bounds.h, '#6366f1') : { width: 24, height: 24, borderColor: '#334155' }}></div>
                             {sourceData && (<span className="text-[8px] font-mono text-slate-500 leading-none">{Math.round(sourceData.container.bounds.w)}x{Math.round(sourceData.container.bounds.h)}</span>)}
                         </div>
-                        <div className=""><svg className="w-3 h-3 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg></div>
+                        <div className=""><RefreshCw className="w-3 h-3 text-slate-600" /></div>
                         <div className="flex flex-col items-center gap-1">
                             <div className="border-2 border-dashed flex items-center justify-center bg-emerald-500/10 transition-all duration-300" style={targetData ? getPreviewStyle(targetData.bounds.w, targetData.bounds.h, '#10b981') : { width: 24, height: 24, borderColor: '#334155' }}></div>
                              {targetData && (<span className="text-[8px] font-mono text-slate-500 leading-none">{Math.round(targetData.bounds.w)}x{Math.round(targetData.bounds.h)}</span>)}
@@ -329,32 +327,53 @@ const InstanceRow: React.FC<any> = ({
                     {isAnalyzing && (
                         <div className="flex items-center space-x-2 text-xs text-slate-400 animate-pulse pl-1">
                             <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></div>
-                            <span>Analyst is thinking...</span>
-                            {activeKnowledge && !state.isKnowledgeMuted && (
-                                <span className="text-[9px] text-teal-400 font-bold ml-1 flex items-center gap-1">
-                                    <Brain className="w-3 h-3" />
-                                    + Semantic Rules
-                                </span>
-                            )}
+                            <span>Analyst is grounding in semantic stream...</span>
                         </div>
                     )}
                 </div>
 
-                {/* Control Footer */}
+                {/* Control Footer - REFINED */}
                 <div className="flex items-center space-x-2 pt-2 border-t border-slate-700/30">
-                     <button 
-                        onClick={(e) => { e.stopPropagation(); onAnalyze(index); }} 
-                        onMouseDown={(e) => e.stopPropagation()} 
-                        disabled={!isReady || isAnalyzing} 
-                        className={`nodrag nopan h-9 w-full rounded text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg flex items-center justify-center space-x-2 
-                            ${isReady && !isAnalyzing 
-                                ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white border border-indigo-400/50' 
-                                : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
-                            }`}
-                     >
-                        <Play className="w-3 h-3 fill-current" />
-                        <span>Run Design Analysis</span>
-                     </button>
+                     <textarea
+                        value={inputText}
+                        onChange={(e) => setInputText(e.target.value)}
+                        onWheel={(e) => e.stopPropagation()}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        placeholder="Refinement instructions (e.g. 'Align to bottom')..."
+                        disabled={!isReady || isAnalyzing}
+                        className="nodrag nopan flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-10 transition-colors"
+                     />
+                     <div className="flex space-x-2">
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onAnalyze(index); }} 
+                            onMouseDown={(e) => e.stopPropagation()} 
+                            disabled={!isReady || isAnalyzing} 
+                            className={`nodrag nopan h-10 px-3 rounded text-[10px] font-bold uppercase transition-all shadow-sm flex items-center justify-center space-x-1
+                                ${isReady && !isAnalyzing 
+                                    ? 'bg-slate-700 hover:bg-slate-600 text-white border border-slate-600' 
+                                    : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
+                                }`}
+                            title="Reset and Start New Analysis"
+                        >
+                            <Eraser className="w-3 h-3" />
+                            <span>Analyze</span>
+                        </button>
+                        
+                        <button 
+                            onClick={handleRefineClick} 
+                            onMouseDown={(e) => e.stopPropagation()} 
+                            disabled={!isReady || isAnalyzing || inputText.trim().length === 0} 
+                            className={`nodrag nopan h-10 px-3 rounded text-[10px] font-bold uppercase transition-all shadow-sm flex items-center justify-center space-x-1
+                                ${inputText.trim().length > 0 && !isAnalyzing 
+                                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400' 
+                                    : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
+                                }`}
+                            title="Refine Current Strategy"
+                        >
+                            <span>Refine</span>
+                            <Send className="w-3 h-3" />
+                        </button>
+                     </div>
                 </div>
             </div>
         </div>
@@ -570,11 +589,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     }));
   }, [id, setNodes]);
   
-  const handleReset = useCallback((index: number) => {
-      updateInstanceState(index, DEFAULT_INSTANCE_STATE);
-      flushPipelineInstance(id, `source-out-${index}`);
-  }, [updateInstanceState, flushPipelineInstance, id]);
-
   const handleModelChange = (index: number, model: ModelKey) => {
       updateInstanceState(index, { selectedModel: model });
   };
@@ -875,11 +889,25 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
       const initialMsg: ChatMessage = {
           id: Date.now().toString(),
           role: 'user',
-          parts: [{ text: "Generate grid layout." }],
+          parts: [{ text: "Evaluate and align." }],
           timestamp: Date.now()
       };
       updateInstanceState(index, { chatHistory: [initialMsg] });
+      flushPipelineInstance(id, `source-out-${index}`); // Reset downstream
       performAnalysis(index, [initialMsg]);
+  };
+
+  const handleRefine = (index: number, text: string) => {
+      const currentHistory = analystInstances[index]?.chatHistory || [];
+      const userMsg: ChatMessage = {
+          id: Date.now().toString(),
+          role: 'user',
+          parts: [{ text }],
+          timestamp: Date.now()
+      };
+      const newHistory = [...currentHistory, userMsg];
+      updateInstanceState(index, { chatHistory: newHistory });
+      performAnalysis(index, newHistory);
   };
 
   return (
@@ -903,8 +931,8 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
              <div className="flex items-center space-x-2">
                 <span className="text-sm font-bold text-purple-100">Design Analyst</span>
                 {activeKnowledge && (
-                    <span className="text-[9px] bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded font-bold tracking-wider">
-                        SEMANTIC STREAM
+                    <span className="text-[9px] bg-emerald-900/50 border border-emerald-500/30 text-emerald-300 px-1.5 py-0.5 rounded font-bold tracking-wider uppercase">
+                        Semantic Stream Active
                     </span>
                 )}
              </div>
@@ -918,7 +946,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
               return (
                   <InstanceRow 
                       key={i} nodeId={id} index={i} state={state} sourceData={getSourceData(i)} targetData={getTargetData(i)}
-                      onAnalyze={handleAnalyze} onModelChange={handleModelChange} onToggleMute={handleToggleMute} onReset={handleReset}
+                      onAnalyze={handleAnalyze} onRefine={handleRefine} onModelChange={handleModelChange} onToggleMute={handleToggleMute}
                       isAnalyzing={!!analyzingInstances[i]} compactMode={instanceCount > 1}
                       activeKnowledge={activeKnowledge}
                   />
