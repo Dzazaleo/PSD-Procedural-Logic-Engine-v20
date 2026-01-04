@@ -4,7 +4,7 @@ import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystIns
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject, findLayerByPath } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Brain, BrainCircuit, Ban, AlertCircle, RefreshCw, Play, Send, Eraser } from 'lucide-react';
+import { Brain, BrainCircuit, Ban, AlertCircle, RefreshCw, Play, MessageSquare, Activity } from 'lucide-react';
 
 // Define the exact union type for model keys to match PSDNodeData
 type ModelKey = 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
@@ -205,7 +205,12 @@ const InstanceRow: React.FC<any> = ({
                     <span className={`text-[11px] font-bold tracking-wide uppercase ${theme.text}`}>
                         {targetData?.name || `Instance ${index + 1}`}
                     </span>
-                    {activeKnowledge && state.isKnowledgeMuted && (
+                    {activeKnowledge && !state.isKnowledgeMuted && (
+                         <span className="flex items-center space-x-1 text-[8px] bg-teal-500/10 text-teal-400 px-1 border border-teal-500/20 rounded font-bold uppercase tracking-wider">
+                             GROUNDED
+                         </span>
+                    )}
+                    {state.isKnowledgeMuted && (
                          <span className="flex items-center space-x-1 text-[9px] text-slate-500 font-bold bg-slate-800/50 px-1.5 py-0.5 rounded border border-slate-700/50 ml-2">
                              <Ban className="w-2.5 h-2.5" />
                              <span className="line-through decoration-slate-500">RULES</span>
@@ -328,6 +333,12 @@ const InstanceRow: React.FC<any> = ({
                         <div className="flex items-center space-x-2 text-xs text-slate-400 animate-pulse pl-1">
                             <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></div>
                             <span>Analyst is grounding in semantic stream...</span>
+                            {activeKnowledge && !state.isKnowledgeMuted && (
+                                <span className="text-[9px] text-teal-400 font-bold ml-1 flex items-center gap-1">
+                                    <Brain className="w-3 h-3" />
+                                    + Semantic Rules
+                                </span>
+                            )}
                         </div>
                     )}
                 </div>
@@ -355,7 +366,7 @@ const InstanceRow: React.FC<any> = ({
                                 }`}
                             title="Reset and Start New Analysis"
                         >
-                            <Eraser className="w-3 h-3" />
+                            <Play className="w-3 h-3 fill-current" />
                             <span>Analyze</span>
                         </button>
                         
@@ -371,7 +382,7 @@ const InstanceRow: React.FC<any> = ({
                             title="Refine Current Strategy"
                         >
                             <span>Refine</span>
-                            <Send className="w-3 h-3" />
+                            <MessageSquare className="w-3 h-3" />
                         </button>
                      </div>
                 </div>
