@@ -41,6 +41,11 @@ export interface KnowledgeContext {
   visualAnchors: VisualAnchor[]; // Visual style references (Mood boards)
 }
 
+export interface InspectedKnowledgeContext {
+  sourceNodeId: string;
+  rules: string;
+}
+
 export type KnowledgeRegistry = Record<string, KnowledgeContext>;
 // -----------------------------
 

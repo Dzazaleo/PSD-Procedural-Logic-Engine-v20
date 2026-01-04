@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { Psd } from 'ag-psd';
-import { TemplateMetadata, MappingContext, TransformedPayload, LayoutStrategy, KnowledgeContext, KnowledgeRegistry } from '../types';
+import { TemplateMetadata, MappingContext, TransformedPayload, LayoutStrategy, KnowledgeContext, KnowledgeRegistry, InspectedKnowledgeContext } from '../types';
 
 interface ProceduralState {
   // Maps NodeID -> Raw PSD Object (Binary/Structure)
@@ -29,6 +29,9 @@ interface ProceduralState {
   // Maps NodeID -> KnowledgeContext (Global Design Rules)
   knowledgeRegistry: KnowledgeRegistry;
 
+  // Maps NodeID -> InspectedKnowledgeContext (Scoped/Filtered Design Rules)
+  inspectedKnowledgeRegistry: Record<string, InspectedKnowledgeContext>;
+
   // Global counter to force re-evaluation of downstream nodes upon binary re-hydration
   globalVersion: number;
 }
@@ -43,6 +46,7 @@ interface ProceduralContextType extends ProceduralState {
   updatePayload: (nodeId: string, handleId: string, partial: Partial<TransformedPayload>) => void; 
   registerAnalysis: (nodeId: string, handleId: string, strategy: LayoutStrategy) => void;
   registerKnowledge: (nodeId: string, context: KnowledgeContext) => void;
+  registerInspectedKnowledge: (nodeId: string, context: InspectedKnowledgeContext) => void;
   updatePreview: (nodeId: string, handleId: string, url: string) => void;
   unregisterNode: (nodeId: string) => void;
   flushPipelineInstance: (nodeId: string, handleId: string) => void;
@@ -215,6 +219,7 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
   const [previewRegistry, setPreviewRegistry] = useState<Record<string, Record<string, string>>>({});
   const [analysisRegistry, setAnalysisRegistry] = useState<Record<string, Record<string, LayoutStrategy>>>({});
   const [knowledgeRegistry, setKnowledgeRegistry] = useState<KnowledgeRegistry>({});
+  const [inspectedKnowledgeRegistry, setInspectedKnowledgeRegistry] = useState<Record<string, InspectedKnowledgeContext>>({});
   const [globalVersion, setGlobalVersion] = useState<number>(0);
 
   const registerPsd = useCallback((nodeId: string, psd: Psd) => {
@@ -430,6 +435,14 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     });
   }, []);
 
+  const registerInspectedKnowledge = useCallback((nodeId: string, context: InspectedKnowledgeContext) => {
+    setInspectedKnowledgeRegistry(prev => {
+        if (prev[nodeId] === context) return prev;
+        if (JSON.stringify(prev[nodeId]) === JSON.stringify(context)) return prev;
+        return { ...prev, [nodeId]: context };
+    });
+  }, []);
+
   const updatePreview = useCallback((nodeId: string, handleId: string, url: string) => {
     setPayloadRegistry(prev => {
       const nodeRecord = prev[nodeId];
@@ -465,6 +478,12 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
         if (!prev[nodeId]) return prev;
         const { [nodeId]: _, ...rest } = prev; 
         return rest; 
+    });
+
+    setInspectedKnowledgeRegistry(prev => {
+        if (!prev[nodeId]) return prev;
+        const { [nodeId]: _, ...rest } = prev;
+        return rest;
     });
 
     setPreviewRegistry(prev => {
@@ -515,6 +534,7 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     previewRegistry,
     analysisRegistry,
     knowledgeRegistry,
+    inspectedKnowledgeRegistry,
     globalVersion,
     registerPsd,
     registerTemplate,
@@ -525,13 +545,14 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     updatePayload, 
     registerAnalysis,
     registerKnowledge,
+    registerInspectedKnowledge,
     updatePreview,
     unregisterNode,
     flushPipelineInstance,
     triggerGlobalRefresh
   }), [
-    psdRegistry, templateRegistry, resolvedRegistry, payloadRegistry, reviewerRegistry, previewRegistry, analysisRegistry, knowledgeRegistry, globalVersion,
-    registerPsd, registerTemplate, registerResolved, registerPayload, registerReviewerPayload, registerPreviewPayload, updatePayload, registerAnalysis, registerKnowledge, updatePreview,
+    psdRegistry, templateRegistry, resolvedRegistry, payloadRegistry, reviewerRegistry, previewRegistry, analysisRegistry, knowledgeRegistry, inspectedKnowledgeRegistry, globalVersion,
+    registerPsd, registerTemplate, registerResolved, registerPayload, registerReviewerPayload, registerPreviewPayload, updatePayload, registerAnalysis, registerKnowledge, registerInspectedKnowledge, updatePreview,
     unregisterNode, flushPipelineInstance, triggerGlobalRefresh
   ]);
 
