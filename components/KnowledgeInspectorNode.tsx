@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState, useEffect } from 'react';
+import React, { memo, useMemo, useState, useEffect, useRef } from 'react';
 import { Handle, Position, NodeProps, useEdges, useReactFlow } from 'reactflow';
 import { PSDNodeData } from '../types';
 import { useProceduralStore } from '../store/ProceduralContext';
@@ -12,6 +12,7 @@ export const KnowledgeInspectorNode = memo(({ id, data }: NodeProps<PSDNodeData>
   const { knowledgeRegistry, unregisterNode } = useProceduralStore();
   const { setNodes } = useReactFlow();
   const [copied, setCopied] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   // Local state for UI, initialized from persisted data if available
   const [selectedContainer, setSelectedContainer] = useState<string>(data.inspectorState?.selectedContainer || GLOBAL_KEY);
@@ -33,6 +34,16 @@ export const KnowledgeInspectorNode = memo(({ id, data }: NodeProps<PSDNodeData>
   useEffect(() => {
     return () => unregisterNode(id);
   }, [id, unregisterNode]);
+
+  // Wheel Event Isolation for Scrolling
+  useEffect(() => {
+      const el = scrollRef.current;
+      if (el) {
+          const onWheel = (e: WheelEvent) => e.stopPropagation();
+          el.addEventListener('wheel', onWheel, { passive: false });
+          return () => el.removeEventListener('wheel', onWheel);
+      }
+  }, []);
 
   // Persist Selection State
   useEffect(() => {
@@ -114,8 +125,9 @@ export const KnowledgeInspectorNode = memo(({ id, data }: NodeProps<PSDNodeData>
               <select 
                   value={selectedContainer}
                   onChange={(e) => setSelectedContainer(e.target.value)}
+                  onMouseDown={(e) => e.stopPropagation()} 
                   disabled={!knowledge}
-                  className="w-full bg-black/40 border border-slate-700 text-teal-100 text-xs rounded pl-8 pr-8 py-2 focus:outline-none focus:border-teal-500 focus:bg-slate-900 transition-all disabled:opacity-50 appearance-none cursor-pointer font-mono shadow-sm hover:border-slate-600"
+                  className="nodrag nopan w-full bg-black/40 border border-slate-700 text-teal-100 text-xs rounded pl-8 pr-8 py-2 focus:outline-none focus:border-teal-500 focus:bg-slate-900 transition-all disabled:opacity-50 appearance-none cursor-pointer font-mono shadow-sm hover:border-slate-600"
               >
                   {availableScopes.map(key => (
                       <option key={key} value={key}>
@@ -141,8 +153,9 @@ export const KnowledgeInspectorNode = memo(({ id, data }: NodeProps<PSDNodeData>
                       <span className="text-[9px] text-slate-600 font-mono">{currentRules.length} LOC</span>
                       <button 
                         onClick={handleCopy}
+                        onMouseDown={(e) => e.stopPropagation()}
                         disabled={currentRules.length === 0}
-                        className={`p-1 rounded transition-all flex items-center space-x-1 ${copied ? 'text-emerald-400 bg-emerald-900/20' : 'text-slate-500 hover:text-teal-400 hover:bg-slate-800'}`}
+                        className={`nodrag nopan p-1 rounded transition-all flex items-center space-x-1 ${copied ? 'text-emerald-400 bg-emerald-900/20' : 'text-slate-500 hover:text-teal-400 hover:bg-slate-800'}`}
                         title="Copy Filtered Rules for Analyst Prompt"
                       >
                           {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -151,7 +164,11 @@ export const KnowledgeInspectorNode = memo(({ id, data }: NodeProps<PSDNodeData>
               </div>
               
               {/* Terminal Output */}
-              <div className="p-3 overflow-y-auto custom-scrollbar flex-1 font-mono text-[10px] leading-relaxed relative">
+              <div 
+                ref={scrollRef}
+                className="nodrag nopan p-3 overflow-y-auto custom-scrollbar flex-1 font-mono text-[10px] leading-relaxed relative"
+                onMouseDown={(e) => e.stopPropagation()}
+              >
                   {!knowledge ? (
                       <div className="flex flex-col items-center justify-center h-full text-slate-700 space-y-2 opacity-60">
                           <Eye className="w-8 h-8 opacity-50" />
