@@ -4,7 +4,7 @@ import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystIns
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject, findLayerByPath } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Brain, BrainCircuit, Ban, ClipboardList, AlertCircle, RefreshCw } from 'lucide-react';
+import { Brain, BrainCircuit, Ban, ClipboardList, AlertCircle, RefreshCw, RotateCcw } from 'lucide-react';
 import { Psd } from 'ag-psd';
 
 // Define the exact union type for model keys to match PSDNodeData
@@ -155,7 +155,7 @@ const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfi
 // ... (Rest of component structure remains similar, focusing changes on the AI Logic)
 
 const InstanceRow: React.FC<any> = ({ 
-    nodeId, index, state, sourceData, targetData, onAnalyze, onRefine, onModelChange, onToggleMute, isAnalyzing, compactMode, activeKnowledge 
+    nodeId, index, state, sourceData, targetData, onAnalyze, onRefine, onModelChange, onToggleMute, onReset, isAnalyzing, compactMode, activeKnowledge 
 }) => {
     // ... (UI Code same as previous, abbreviated for clarity)
     // ...
@@ -242,6 +242,15 @@ const InstanceRow: React.FC<any> = ({
                             {state.isKnowledgeMuted ? <BrainCircuit className="w-3 h-3 opacity-50" /> : <Brain className="w-3 h-3" />}
                         </button>
                     )}
+
+                    {/* Reset Button */}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); onReset(index); }}
+                        className="nodrag nopan p-1 rounded transition-colors bg-slate-800 text-slate-500 border border-slate-700 hover:text-red-400 hover:border-red-900/50"
+                        title="Reset Instance (Clear History & Strategy)"
+                    >
+                        <RotateCcw className="w-3 h-3" />
+                    </button>
 
                     {/* Model Selector */}
                     <div className="relative">
@@ -576,6 +585,12 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         return n;
     }));
   }, [id, setNodes]);
+  
+  // NEW: Reset Handler
+  const handleReset = useCallback((index: number) => {
+      // Revert to Default State (Clears Chat & Strategy)
+      updateInstanceState(index, DEFAULT_INSTANCE_STATE);
+  }, [updateInstanceState]);
 
   const handleModelChange = (index: number, model: ModelKey) => {
       updateInstanceState(index, { selectedModel: model });
@@ -944,7 +959,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
               return (
                   <InstanceRow 
                       key={i} nodeId={id} index={i} state={state} sourceData={getSourceData(i)} targetData={getTargetData(i)}
-                      onAnalyze={handleAnalyze} onRefine={handleRefine} onModelChange={handleModelChange} onToggleMute={handleToggleMute}
+                      onAnalyze={handleAnalyze} onRefine={handleRefine} onModelChange={handleModelChange} onToggleMute={handleToggleMute} onReset={handleReset}
                       isAnalyzing={!!analyzingInstances[i]} compactMode={instanceCount > 1}
                       activeKnowledge={activeKnowledge}
                   />
