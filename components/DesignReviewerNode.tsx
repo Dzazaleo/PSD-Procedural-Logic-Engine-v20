@@ -210,35 +210,42 @@ const ReviewerInstanceRow: React.FC<{
         const currentGenId = incomingPayload.generationId;
         const previousGenId = lastProcessedGenerationId.current;
 
+        // GEOMETRIC RESET DETECTION:
+        // If the payload is geometric (no generation required, not confirmed), we should clear old AI audits.
+        // We check if it lacks generation flags OR if generationId has changed.
+        const isGeometricReset = !incomingPayload.requiresGeneration && !incomingPayload.isConfirmed && !incomingPayload.previewUrl;
+        
         // Initialize Ref if undefined
         if (previousGenId === undefined && currentGenId !== undefined) {
             lastProcessedGenerationId.current = currentGenId;
             return;
         }
 
-        // Logic: If Upstream Generation ID changes, the current audit is Stale.
-        if (previousGenId !== undefined && currentGenId !== previousGenId) {
-            console.log(`[Reviewer] Stale audit detected for instance ${index}. Resetting.`);
+        // Logic: If Upstream Generation ID changes OR Geometric Reset detected, the current audit is Stale.
+        if ((previousGenId !== undefined && currentGenId !== previousGenId) || isGeometricReset) {
             
-            const sysMsg: ChatMessage = {
-                id: `sys-${Date.now()}`,
-                role: 'model',
-                parts: [{ text: "⚠️ [SYSTEM]: Upstream change detected. Previous audit invalidated." }],
-                timestamp: Date.now()
-            };
+            // Only trigger reset if we actually have state to clear
+            if (state.chatHistory.length > 0 || state.reviewerStrategy) {
+                console.log(`[Reviewer] Stale/Geometric audit detected for instance ${index}. Resetting.`);
+                
+                const sysMsg: ChatMessage = {
+                    id: `sys-${Date.now()}`,
+                    role: 'model',
+                    parts: [{ text: "⚠️ [SYSTEM]: Upstream change detected. Previous audit invalidated." }],
+                    timestamp: Date.now()
+                };
 
-            // Reset local strategy
-            onUpdateState(index, {
-                reviewerStrategy: null,
-                chatHistory: [...state.chatHistory, sysMsg]
-            });
+                // Reset local strategy
+                onUpdateState(index, {
+                    reviewerStrategy: null,
+                    chatHistory: isGeometricReset ? [] : [...state.chatHistory, sysMsg] // Clear history entirely if geometric reset
+                });
+            }
             
             // Sync store to remove old polished data immediately
-            // Note: The main effect below will also catch the strategy nullification, 
-            // but we update ref here to acknowledge the new state.
             lastProcessedGenerationId.current = currentGenId;
         }
-    }, [incomingPayload?.generationId, index, onUpdateState, state.chatHistory]);
+    }, [incomingPayload, index, onUpdateState, state.chatHistory, state.reviewerStrategy]);
 
     // Apply Overrides Effect (State -> Store)
     useEffect(() => {
@@ -592,7 +599,7 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
   };
 
   return (
-    // ROOT: Removed overflow-hidden to allow handles to peek out. Added relative.
+    // ROOT: Removed overflow-hidden to allow handles to poke out. Added relative.
     // Changed fixed width to w-full h-full to support resizing.
     <div ref={rootRef} className="w-full h-full bg-slate-900 rounded-lg shadow-2xl border border-emerald-500/50 font-sans flex flex-col relative transition-all hover:shadow-emerald-900/20 hover:border-emerald-400 group">
       <NodeResizer 

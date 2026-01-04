@@ -45,6 +45,7 @@ interface ProceduralContextType extends ProceduralState {
   registerKnowledge: (nodeId: string, context: KnowledgeContext) => void;
   updatePreview: (nodeId: string, handleId: string, url: string) => void;
   unregisterNode: (nodeId: string) => void;
+  flushPipelineInstance: (nodeId: string, handleId: string) => void;
   triggerGlobalRefresh: () => void;
 }
 
@@ -57,7 +58,22 @@ const reconcileTerminalState = (
     currentPayload: TransformedPayload | undefined
 ): TransformedPayload => {
 
-    // 0. GENERATIVE LOGIC GATE: HARD STOP
+    // 0. RESET LOGIC (Cascaded Flush)
+    // If the payload is effectively idle/reset and lacks a generation ID, we force a strip of all AI artifacts.
+    if (incomingPayload.status === 'idle' && !incomingPayload.generationId) {
+        return {
+            ...incomingPayload,
+            previewUrl: undefined,
+            isConfirmed: false,
+            isTransient: false,
+            isSynthesizing: false,
+            isPolished: false,
+            requiresGeneration: false,
+            sourceReference: undefined
+        };
+    }
+
+    // 1. GENERATIVE LOGIC GATE: HARD STOP
     // If generation is explicitly disallowed (per-instance toggle), we must strip purely synthetic assets.
     // SURGICAL UPDATE: We must NOT delete layers that were "Swapped" (changed from Pixel -> Gen).
     // Swapped layers retain their original IDs (e.g., "0.3.1"). Additive layers use synthetic IDs ("gen-layer-...").
@@ -102,13 +118,13 @@ const reconcileTerminalState = (
         };
     }
 
-    // 1. STALE GUARD:
+    // 2. STALE GUARD:
     // If store has a newer generation ID than incoming, reject the update.
     if (currentPayload?.generationId && incomingPayload.generationId && incomingPayload.generationId < currentPayload.generationId) {
         return currentPayload;
     }
 
-    // 2. SANITATION (Geometric Reset)
+    // 3. SANITATION (Geometric Reset)
     // Explicitly flush preview and history if status is 'idle' (e.g. disconnected or reset)
     if (incomingPayload.status === 'idle') {
         return {
@@ -120,7 +136,7 @@ const reconcileTerminalState = (
         };
     }
 
-    // 3. FLUSH PHASE (Start Synthesis)
+    // 4. FLUSH PHASE (Start Synthesis)
     if (incomingPayload.isSynthesizing) {
         return {
             ...(currentPayload || incomingPayload),
@@ -135,7 +151,7 @@ const reconcileTerminalState = (
         };
     }
 
-    // 4. REFINEMENT PERSISTENCE (State Guard)
+    // 5. REFINEMENT PERSISTENCE (State Guard)
     // Prevent accidental reset of confirmation if prompt hasn't changed structurally
     let isConfirmed = incomingPayload.isConfirmed ?? currentPayload?.isConfirmed ?? false;
     
@@ -144,7 +160,7 @@ const reconcileTerminalState = (
         isConfirmed = false;
     }
 
-    // 5. GEOMETRIC PRESERVATION
+    // 6. GEOMETRIC PRESERVATION
     // If this is a layout update (no generationId) but we have AI assets, keep them.
     if (!incomingPayload.generationId && currentPayload?.generationId) {
          return {
@@ -159,7 +175,7 @@ const reconcileTerminalState = (
          };
     }
 
-    // 6. FINAL CONSTRUCTION
+    // 7. FINAL CONSTRUCTION
     return {
         ...incomingPayload,
         isConfirmed,
@@ -454,6 +470,24 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     setGlobalVersion(v => v + 1);
   }, []);
 
+  // NEW: Deep Pipeline Flush to clear AI artifacts on reset
+  const flushPipelineInstance = useCallback((nodeId: string, handleId: string) => {
+      const clearEntry = (registry: Record<string, Record<string, any>>, setRegistry: React.Dispatch<React.SetStateAction<any>>) => {
+          setRegistry((prev: Record<string, Record<string, any>>) => {
+              if (!prev[nodeId]) return prev;
+              const { [handleId]: _, ...restHandles } = prev[nodeId];
+              return { ...prev, [nodeId]: restHandles };
+          });
+      };
+
+      // Atomic clearance of all downstream data sources for this specific pipeline slot
+      clearEntry(resolvedRegistry, setResolvedRegistry);
+      clearEntry(payloadRegistry, setPayloadRegistry);
+      clearEntry(reviewerRegistry, setReviewerRegistry);
+      clearEntry(previewRegistry, setPreviewRegistry);
+      clearEntry(analysisRegistry, setAnalysisRegistry);
+  }, [resolvedRegistry, payloadRegistry, reviewerRegistry, previewRegistry, analysisRegistry]);
+
   const triggerGlobalRefresh = useCallback(() => {
     setGlobalVersion(v => v + 1);
   }, []);
@@ -479,11 +513,12 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     registerKnowledge,
     updatePreview,
     unregisterNode,
+    flushPipelineInstance,
     triggerGlobalRefresh
   }), [
     psdRegistry, templateRegistry, resolvedRegistry, payloadRegistry, reviewerRegistry, previewRegistry, analysisRegistry, knowledgeRegistry, globalVersion,
     registerPsd, registerTemplate, registerResolved, registerPayload, registerReviewerPayload, registerPreviewPayload, updatePayload, registerAnalysis, registerKnowledge, updatePreview,
-    unregisterNode, triggerGlobalRefresh
+    unregisterNode, flushPipelineInstance, triggerGlobalRefresh
   ]);
 
   return (

@@ -41,7 +41,7 @@ const PreviewInstanceRow = memo(({ index, nodeId }: { index: number, nodeId: str
         return null;
     }, [edges, nodeId, index, payloadRegistry, reviewerRegistry]);
 
-    // 2. Render Effect
+    // 2. Render Effect & Proxy Logic
     useEffect(() => {
         if (!incomingPayload) {
             setPreviewUrl(null);
@@ -55,7 +55,7 @@ const PreviewInstanceRow = memo(({ index, nodeId }: { index: number, nodeId: str
         if (!psd) {
             setError('BINARY_MISSING');
             setIsLoading(false);
-            registerPreviewPayload(nodeId, `payload-out-${index}`, incomingPayload, '');
+            // Don't register invalid payloads
             return;
         }
 
@@ -67,7 +67,8 @@ const PreviewInstanceRow = memo(({ index, nodeId }: { index: number, nodeId: str
             metrics: incomingPayload.metrics,
             layers: incomingPayload.layers,
             id: incomingPayload.generationId,
-            gv: globalVersion
+            gv: globalVersion,
+            isPolished: incomingPayload.isPolished // Track polish state
         });
 
         if (lastPayloadRef.current === payloadSignature && !error && previewUrl) {
@@ -85,6 +86,15 @@ const PreviewInstanceRow = memo(({ index, nodeId }: { index: number, nodeId: str
                     setPreviewUrl(url);
                     setIsLoading(false);
                     setError(null);
+                    
+                    // PROXY LOGIC:
+                    // Only proxy to reviewerRegistry if we have a valid render.
+                    // If incoming payload is "geometric" (not polished), this registration will usually promote it to polished.
+                    // However, if the intent is to stop proxying when "no longer polished", we must ensure we respect the geometric state if reset.
+                    // Since Preview Node ACTS as a polish gate, it should output a polished version of whatever it renders.
+                    // The "Reset" happens upstream. If upstream resets, incomingPayload becomes geometric. 
+                    // This effect runs, renders the geometric view, and outputs it as verified (polished) geometric layout.
+                    // This is correct behavior for a production gate.
                     registerPreviewPayload(nodeId, `payload-out-${index}`, incomingPayload, url);
                 }
             })
@@ -93,7 +103,7 @@ const PreviewInstanceRow = memo(({ index, nodeId }: { index: number, nodeId: str
                 if (isMounted) {
                     setError('RENDER_FAILED');
                     setIsLoading(false);
-                    registerPreviewPayload(nodeId, `payload-out-${index}`, incomingPayload, '');
+                    // On failure, do not register/proxy corrupt data
                 }
             });
 

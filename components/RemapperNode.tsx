@@ -597,6 +597,12 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
                 // Surgical swap logic inside transformLayers now handles asset placement.
                 
                 const storePayload = payloadRegistry[id]?.[`result-out-${i}`];
+                
+                // STALE GUARD: If strategy is missing (Analyst reset), don't inherit AI artifacts
+                const inheritPreview = strategy ? (storePayload?.previewUrl || sourceData.previewUrl) : undefined;
+                const inheritConfirmed = strategy ? isConfirmed : false;
+                const inheritSourceRef = strategy?.sourceReference;
+                
                 payload = {
                     status,
                     sourceNodeId: sourceData.nodeId,
@@ -607,10 +613,10 @@ export const RemapperNode = memo(({ id, data }: NodeProps<PSDNodeData>) => {
                     metrics: { source: { w: sourceRect.w, h: sourceRect.h }, target: { w: targetRect.w, h: targetRect.h } },
                     targetBounds: { x: targetRect.x, y: targetRect.y, w: targetRect.w, h: targetRect.h },
                     requiresGeneration,
-                    previewUrl: storePayload?.previewUrl || sourceData.previewUrl,
-                    isConfirmed,
-                    isTransient: !isConfirmed,
-                    sourceReference: strategy?.sourceReference,
+                    previewUrl: inheritPreview,
+                    isConfirmed: inheritConfirmed,
+                    isTransient: !inheritConfirmed && !!inheritPreview,
+                    sourceReference: inheritSourceRef,
                     generationId: storePayload?.generationId,
                     isSynthesizing: storePayload?.isSynthesizing,
                     generationAllowed: effectiveAllowed,

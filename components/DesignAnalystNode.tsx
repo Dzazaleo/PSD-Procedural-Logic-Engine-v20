@@ -385,7 +385,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   const nodes = useNodes(); 
   const { setNodes } = useReactFlow();
   const updateNodeInternals = useUpdateNodeInternals();
-  const { resolvedRegistry, templateRegistry, knowledgeRegistry, registerResolved, registerTemplate, unregisterNode, psdRegistry } = useProceduralStore();
+  const { resolvedRegistry, templateRegistry, knowledgeRegistry, registerResolved, registerTemplate, unregisterNode, psdRegistry, flushPipelineInstance } = useProceduralStore();
 
   useEffect(() => {
     return () => unregisterNode(id);
@@ -586,11 +586,13 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
     }));
   }, [id, setNodes]);
   
-  // NEW: Reset Handler
+  // NEW: Reset Handler with Deep Pipeline Flush
   const handleReset = useCallback((index: number) => {
-      // Revert to Default State (Clears Chat & Strategy)
+      // 1. Revert to Default State (Clears Chat & Strategy)
       updateInstanceState(index, DEFAULT_INSTANCE_STATE);
-  }, [updateInstanceState]);
+      // 2. FORCE PIPELINE FLUSH: Clear downstream registries immediately to remove stale AI artifacts
+      flushPipelineInstance(id, `source-out-${index}`);
+  }, [updateInstanceState, flushPipelineInstance, id]);
 
   const handleModelChange = (index: number, model: ModelKey) => {
       updateInstanceState(index, { selectedModel: model });
@@ -627,7 +629,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
      }
   };
 
-  // --- UPDATED: System Instruction with Directive Extraction Protocol ---
+  // ... (System Instruction & Analysis Logic - same as before) ...
   const generateSystemInstruction = (sourceData: any, targetData: any, isRefining: boolean, knowledgeContext: KnowledgeContext | null) => {
     const sourceW = sourceData.container.bounds.w;
     const sourceH = sourceData.container.bounds.h;
