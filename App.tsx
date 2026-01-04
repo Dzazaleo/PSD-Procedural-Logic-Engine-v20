@@ -23,6 +23,7 @@ import { RemapperNode } from './components/RemapperNode';
 import { DesignAnalystNode } from './components/DesignAnalystNode'; 
 import { ExportPSDNode } from './components/ExportPSDNode';
 import { KnowledgeNode } from './components/KnowledgeNode'; 
+import { KnowledgeInspectorNode } from './components/KnowledgeInspectorNode';
 import { DesignReviewerNode } from './components/DesignReviewerNode';
 import { ContainerPreviewNode } from './components/ContainerPreviewNode'; 
 import { ProjectControls } from './components/ProjectControls';
@@ -43,6 +44,12 @@ const initialNodes: Node<PSDNodeData>[] = [
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
+    id: 'node-inspector-1',
+    type: 'knowledgeInspector',
+    position: { x: 400, y: 350 },
+    data: { fileName: null, template: null, validation: null, designLayers: null },
+  },
+  {
     id: 'node-target-1',
     type: 'targetTemplate',
     position: { x: 650, y: 50 },
@@ -57,7 +64,7 @@ const initialNodes: Node<PSDNodeData>[] = [
   {
     id: 'node-3',
     type: 'templateSplitter',
-    position: { x: 350, y: 450 },
+    position: { x: 350, y: 650 }, // Moved down to avoid overlap
     data: { fileName: null, template: null, validation: null, designLayers: null },
   },
   {
@@ -134,6 +141,14 @@ const initialEdges: Edge[] = [
       target: 'node-5', 
       sourceHandle: 'target-metadata-out',
       targetHandle: 'template-input'
+    },
+    // Connect Knowledge to Inspector
+    {
+      id: 'e-knowledge-inspector',
+      source: 'node-knowledge-1',
+      target: 'node-inspector-1',
+      sourceHandle: 'knowledge-out',
+      targetHandle: 'knowledge-in'
     }
 ];
 
@@ -201,6 +216,16 @@ const App: React.FC = () => {
             } else if (handle.startsWith('target-in')) {
                 if (sourceNode.type !== 'targetSplitter') {
                     console.warn("Design Analyst 'Target' requires a Target Splitter.");
+                    return;
+                }
+            }
+        }
+
+        // Knowledge Inspector Validation Rules
+        if (targetNode.type === 'knowledgeInspector') {
+            if (params.targetHandle === 'knowledge-in') {
+                if (sourceNode.type !== 'knowledge') {
+                    console.warn("Knowledge Inspector requires a Knowledge Node source.");
                     return;
                 }
             }
@@ -292,6 +317,7 @@ const App: React.FC = () => {
     containerPreview: ContainerPreviewNode, // Registered new node
     exportPsd: ExportPSDNode,
     knowledge: KnowledgeNode,
+    knowledgeInspector: KnowledgeInspectorNode, // Registered new node
   }), []);
 
   return (

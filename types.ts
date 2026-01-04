@@ -229,6 +229,10 @@ export interface ReviewerInstanceState {
   reviewerStrategy: ReviewerStrategy | null;
 }
 
+export interface InspectorState {
+  selectedContainer: string;
+}
+
 export interface PSDNodeData {
   fileName: string | null;
   template: TemplateMetadata | null;
@@ -251,6 +255,9 @@ export interface PSDNodeData {
   analystInstances?: Record<number, AnalystInstanceState>;
   reviewerInstances?: Record<number, ReviewerInstanceState>; // Reviewer Node State
   
+  // New Inspector State
+  inspectorState?: InspectorState;
+
   // Legacy Single-Instance Fields (Kept for backward compatibility if needed, but deprecated)
   layoutStrategy?: LayoutStrategy | null; 
   selectedModel?: 'gemini-3-flash' | 'gemini-3-pro' | 'gemini-3-pro-thinking';
