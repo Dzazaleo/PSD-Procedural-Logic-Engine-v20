@@ -5,7 +5,7 @@ import { useProceduralStore } from '../store/ProceduralContext';
 import { findLayerByPath } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Psd } from 'ag-psd';
-import { Activity, ShieldCheck, Maximize, RotateCw, ArrowRight, ScanEye, BookOpen } from 'lucide-react';
+import { Activity, ShieldCheck, Maximize, RotateCw, ArrowRight, ScanEye, BookOpen, Send, MessageSquare } from 'lucide-react';
 
 const DEFAULT_REVIEWER_STATE: ReviewerInstanceState = {
     chatHistory: [],
@@ -179,13 +179,15 @@ const ReviewerInstanceRow: React.FC<{
     state: ReviewerInstanceState;
     incomingPayload: TransformedPayload | null;
     onReview: (index: number) => void;
+    onRefine: (index: number, prompt: string) => void;
     onUpdateState: (index: number, updates: Partial<ReviewerInstanceState>) => void;
     isProcessing: boolean;
-}> = ({ index, nodeId, state, incomingPayload, onReview, onUpdateState, isProcessing }) => {
+}> = ({ index, nodeId, state, incomingPayload, onReview, onRefine, onUpdateState, isProcessing }) => {
     const isReady = !!incomingPayload;
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const { registerReviewerPayload } = useProceduralStore();
     const lastProcessedGenerationId = useRef<number | undefined>(undefined);
+    const [input, setInput] = useState('');
 
     // Isolated Scroll
     useEffect(() => {
@@ -263,6 +265,11 @@ const ReviewerInstanceRow: React.FC<{
 
     }, [incomingPayload, state.reviewerStrategy, nodeId, index, registerReviewerPayload]);
 
+    const handleSend = () => {
+        if (!input.trim()) return;
+        onRefine(index, input);
+        setInput('');
+    };
 
     return (
         <div className="relative border-b border-emerald-900/30 bg-slate-900/40 p-3 space-y-3">
@@ -316,7 +323,7 @@ const ReviewerInstanceRow: React.FC<{
                                 <span className="font-bold opacity-50 mr-2">[{msg.role.toUpperCase()}]</span>
                                 {msg.parts[0].text}
                             </div>
-                            {msg.strategySnapshot && (
+                            {msg.strategySnapshot && msg.role === 'model' && (
                                 <div className="mt-1 pl-2 text-emerald-600/80 italic text-[8px] space-y-0.5">
                                     <div className="flex items-center gap-1">
                                         <ArrowRight className="w-2 h-2" />
@@ -341,28 +348,51 @@ const ReviewerInstanceRow: React.FC<{
                 )}
             </div>
 
-            {/* Metrics & Output */}
-            <div className="flex items-end justify-between space-x-4">
-                <div className="flex-1">
-                    <NudgeMatrix strategy={state.reviewerStrategy} />
-                </div>
-                <div className="flex flex-col items-end space-y-2">
-                    <button 
-                        onClick={() => onReview(index)}
-                        disabled={!isReady || isProcessing}
-                        className={`px-4 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-all shadow-lg flex items-center gap-1.5
-                            ${isReady && !isProcessing 
-                                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transform hover:-translate-y-0.5 border border-emerald-500/50' 
-                                : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
-                            }`}
-                    >
-                        {isProcessing ? <Activity className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
-                        <span>Reconcile</span>
-                    </button>
-                    <div className="relative">
-                        <span className="text-[7px] text-emerald-600 font-bold font-mono mr-5 tracking-wider">POLISHED_OUT</span>
-                        <Handle type="source" position={Position.Right} id={`polished-out-${index}`} className="!absolute !-right-1.5 !top-1/2 !-translate-y-1/2 !w-3 !h-3 !rounded-full !bg-white !border-2 !border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] z-50" title="Output: Aesthetic Sign-off" />
+            {/* Metrics & Controls */}
+            <div className="flex flex-col space-y-2 mt-2">
+                <div className="flex items-end justify-between space-x-4">
+                    <div className="flex-1">
+                        <NudgeMatrix strategy={state.reviewerStrategy} />
                     </div>
+                    <div className="flex flex-col items-end space-y-2">
+                        <button 
+                            onClick={() => onReview(index)}
+                            disabled={!isReady || isProcessing}
+                            className={`px-4 py-1.5 rounded text-[9px] font-bold uppercase tracking-widest transition-all shadow-lg flex items-center gap-1.5
+                                ${isReady && !isProcessing 
+                                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white transform hover:-translate-y-0.5 border border-emerald-500/50' 
+                                    : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
+                                }`}
+                        >
+                            {isProcessing ? <Activity className="w-3 h-3 animate-spin" /> : <ShieldCheck className="w-3 h-3" />}
+                            <span>Reconcile</span>
+                        </button>
+                        <div className="relative">
+                            <span className="text-[7px] text-emerald-600 font-bold font-mono mr-5 tracking-wider">POLISHED_OUT</span>
+                            <Handle type="source" position={Position.Right} id={`polished-out-${index}`} className="!absolute !-right-1.5 !top-1/2 !-translate-y-1/2 !w-3 !h-3 !rounded-full !bg-white !border-2 !border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] z-50" title="Output: Aesthetic Sign-off" />
+                        </div>
+                    </div>
+                </div>
+
+                {/* Interactive Refinement Input */}
+                <div className="flex gap-2 items-center bg-black/20 p-1.5 rounded border border-slate-800 focus-within:border-emerald-500/30 transition-colors">
+                    <MessageSquare className="w-3.5 h-3.5 text-slate-500 ml-1 shrink-0" />
+                    <input
+                        type="text"
+                        value={input}
+                        onChange={(e) => setInput(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSend(); }}
+                        placeholder="Direct CARO (e.g. 'Nudge title up 10px')..."
+                        disabled={!isReady || isProcessing}
+                        className="flex-1 bg-transparent text-[9px] text-emerald-100 placeholder:text-slate-600 focus:outline-none h-full"
+                    />
+                    <button
+                        onClick={handleSend}
+                        disabled={!isReady || isProcessing || !input.trim()}
+                        className="text-slate-400 hover:text-emerald-400 disabled:opacity-30 disabled:hover:text-slate-400 transition-colors p-1"
+                    >
+                        <Send className="w-3.5 h-3.5" />
+                    </button>
                 </div>
             </div>
         </div>
@@ -427,7 +457,7 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
     return nodePayloads ? nodePayloads[edge.sourceHandle || ''] : null;
   }, [id, payloadRegistry, edges]);
 
-  const handleReview = async (index: number) => {
+  const processAudit = async (index: number, userInstruction?: string) => {
       const payload = getIncomingPayload(index);
       if (!payload) return;
 
@@ -439,17 +469,38 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
 
       setProcessingState(prev => ({ ...prev, [index]: true }));
 
+      // Append user message immediately if interactive
+      if (userInstruction) {
+          const userMsg: ChatMessage = {
+              id: Date.now().toString(),
+              role: 'user',
+              parts: [{ text: userInstruction }],
+              timestamp: Date.now()
+          };
+          updateInstanceState(index, {
+              chatHistory: [...(reviewerInstances[index]?.chatHistory || []), userMsg]
+          });
+      }
+
       try {
-          // 1. Render Visual Context (Vision)
-          const visualBase64 = await renderCurrentState(payload, psd);
+          // 1. Determine Effective State for Vision
+          // If we have existing overrides, we must render the *modified* state so the AI sees the current result.
+          const currentState = reviewerInstances[index];
+          const currentOverrides = currentState?.reviewerStrategy?.overrides || [];
+          
+          const effectivePayload = currentOverrides.length > 0 
+            ? applyOverridesToPayload(payload, currentOverrides) 
+            : payload;
+
+          // 2. Render Visual Context
+          const visualBase64 = await renderCurrentState(effectivePayload, psd);
           if (!visualBase64) throw new Error("Failed to composite visual state.");
 
-          // 2. Prepare AI Request
+          // 3. Prepare AI Request
           const apiKey = process.env.API_KEY;
           if (!apiKey) throw new Error("API Key missing");
           const ai = new GoogleGenAI({ apiKey });
 
-          // 3. Simplify Layer Hierarchy for Tokens
           const simplifiedLayers = payload.layers.map(l => ({
               id: l.id,
               name: l.name,
@@ -460,60 +511,50 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
               type: l.type
           }));
 
+          const instructionMode = userInstruction 
+             ? `MODE: INTERACTIVE REFINEMENT. The user has provided specific instructions.` 
+             : `MODE: INITIAL AUDIT. Perform standard optical reconciliation.`;
+             
+          const contextContext = currentOverrides.length > 0
+             ? `CURRENT STATE: The provided image reflects the following overrides applied to the original layout: ${JSON.stringify(currentOverrides)}.`
+             : `CURRENT STATE: Baseline Procedural Layout.`;
+
           const prompt = `
             ROLE: CARO (Chief Aesthetic Reconciliation Officer).
-            TASK: Optical Audit & Surgical Correction.
+            ${instructionMode}
             
             CONTEXT:
             - Target Container: ${payload.targetContainer}
-            - Current Scale Factor: ${payload.scaleFactor}
-            - Active Directives: ${JSON.stringify(payload.directives || [])}
+            - Scale Factor: ${payload.scaleFactor}
+            - ${contextContext}
             
             INPUT:
-            1. An image of the current procedural layout (Rendered).
-            2. A JSON list of layers corresponding to that image.
+            1. An image of the CURRENT visual state.
+            2. The ORIGINAL layer hierarchy JSON (before overrides).
             
-            RELATIVE ALIGNMENT VALIDATOR PROTOCOL:
-            1. Analyze "Optical Equidistance": Check distances between layers sharing semantic boundaries (e.g., Frame vs Background, Text vs Container Edge).
-            2. SNAP ENFORCEMENT: If 'ZERO_GAP_ALIGNMENT' or 'NO_GAPS' directive is active, identify any gaps > 0px between structural elements.
-            3. DRIFT CORRECTION: If a gap is detected between "snapped" layers, calculate the precise xOffset/yOffset required to achieve a 0px delta. Prioritize moving the secondary layer (child) to meet the primary (parent).
+            TASK:
+            ${userInstruction ? `Analyze the image and the User Instruction: "${userInstruction}". Calculate the NEW set of overrides required to achieve this goal.` : `Identify aesthetic collisions and geometric drifts. Provide precise 'nudges' to achieve Optical Equilibrium.`}
             
-            GHOST IDENTITY PROTOCOL (Surgical Swap Recognition):
-            1. IDENTIFY: Layers with type='generative' are "Ghost Assets" acting as the legal representative of an original layer.
-            2. AUDIT: Treat Ghost Assets as the original rigid layer for all geometric checks.
-            3. EQUILIBRIUM: Ensure the AI texture fills the original bounds without awkward tangents.
-            4. ATTRIBUTION: If nudging a Ghost Asset, your 'citedRule' MUST reference the original layer name + "(AI Swapped)" (e.g., "Adjusted [Layer Name] (AI Swapped) to align...").
-
-            YOUR JOB:
-            Identify aesthetic collisions (e.g., text overlapping objects, awkward tangents, visual imbalance) and geometric drifts.
-            Provide precise 'nudges' (offsets, scale adjustments) to achieve Optical Equilibrium.
+            IMPORTANT:
+            - Your output 'overrides' must be the FULL LIST required to transform the ORIGINAL LAYOUT to the FINAL DESIRED STATE.
+            - If you are refining an existing offset (e.g. moving further left), you must ADD your new delta to the 'CURRENT STATE' offset value.
+            - Example: If current xOffset is -10, and user says "move left 5px", new xOffset must be -15.
             
             RULES:
-            - DO NOT change content. 
-            - DO NOT delete layers.
-            - ONLY apply offsets (xOffset, yOffset) and micro-scaling (individualScale).
-            - 'individualScale' is a multiplier (e.g. 0.95 = shrink 5%).
-            - ATTRIBUTION: For every override, you MUST provide a 'citedRule' string explaining the aesthetic reason (e.g., "Corrected 3px drift to satisfy 'No Gaps'").
+            - DO NOT change content or delete layers.
+            - ONLY apply offsets and micro-scaling.
+            - ATTRIBUTION: Provide a 'citedRule' string explaining the aesthetic reason (e.g., "User Request: Adjusted header position").
             
             OUTPUT JSON:
             {
-                "CARO_Audit": "Brief, clinical report of friction points found (e.g., 'Corrected overlap between Prize Text and Bottle neck').",
-                "overrides": [
-                    { 
-                        "layerId": "string (must match input)", 
-                        "xOffset": number, 
-                        "yOffset": number, 
-                        "individualScale": number, 
-                        "rotation": number,
-                        "citedRule": "string (Mandatory)" 
-                    }
-                ]
+                "CARO_Audit": "Brief report of actions taken.",
+                "overrides": [ { "layerId": "string", "xOffset": number, "yOffset": number, "individualScale": number, "rotation": number, "citedRule": "string" } ]
             }
           `;
 
           const parts: any[] = [
               { text: prompt },
-              { text: `LAYER HIERARCHY:\n${JSON.stringify(simplifiedLayers.slice(0, 50))}` }, // Limit context
+              { text: `ORIGINAL LAYER HIERARCHY:\n${JSON.stringify(simplifiedLayers.slice(0, 50))}` },
               { inlineData: { mimeType: 'image/jpeg', data: visualBase64.split(',')[1] } }
           ];
 
@@ -567,17 +608,20 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
           // 6. Update Node Data
           setNodes(nds => nds.map(n => {
               if (n.id === id) {
-                  const currentInstances = n.data.reviewerInstances || {};
-                  const oldState = currentInstances[index] || DEFAULT_REVIEWER_STATE;
+                  const curr = n.data.reviewerInstances || {};
+                  const prevChat = userInstruction 
+                      ? (curr[index]?.chatHistory || []) // Already appended user msg via local state, but safe to grab latest
+                      : (curr[index]?.chatHistory || []);
+                      
                   return {
                       ...n,
                       data: {
                           ...n.data,
                           reviewerInstances: {
-                              ...currentInstances,
+                              ...curr,
                               [index]: {
-                                  ...oldState,
-                                  chatHistory: [...oldState.chatHistory, newLog],
+                                  ...curr[index],
+                                  chatHistory: [...prevChat, newLog],
                                   reviewerStrategy: newStrategy
                               }
                           }
@@ -594,13 +638,14 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
       }
   };
 
+  const handleReview = (index: number) => processAudit(index);
+  const handleRefine = (index: number, prompt: string) => processAudit(index, prompt);
+
   const addInstance = () => {
       setNodes(nds => nds.map(n => n.id === id ? { ...n, data: { ...n.data, instanceCount: instanceCount + 1 } } : n));
   };
 
   return (
-    // ROOT: Removed overflow-hidden to allow handles to poke out. Added relative.
-    // Changed fixed width to w-full h-full to support resizing.
     <div ref={rootRef} className="w-full h-full bg-slate-900 rounded-lg shadow-2xl border border-emerald-500/50 font-sans flex flex-col relative transition-all hover:shadow-emerald-900/20 hover:border-emerald-400 group">
       <NodeResizer 
         minWidth={400} 
@@ -611,7 +656,7 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
         lineStyle={{ border: 'none' }}
       />
       
-      {/* Header: Added rounded-t-lg and overflow-hidden for corner clipping */}
+      {/* Header */}
       <div className="relative bg-emerald-950/80 backdrop-blur-md p-2 border-b border-emerald-500/30 flex items-center justify-between shrink-0 overflow-hidden rounded-t-lg">
          <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-20 mix-blend-soft-light pointer-events-none"></div>
          <div className="flex items-center space-x-2 z-10">
@@ -635,13 +680,14 @@ export const DesignReviewerNode = memo(({ id, data }: NodeProps<PSDNodeData>) =>
                 state={reviewerInstances[i] || { chatHistory: [], reviewerStrategy: null }}
                 incomingPayload={getIncomingPayload(i)}
                 onReview={handleReview}
+                onRefine={handleRefine}
                 onUpdateState={updateInstanceState}
                 isProcessing={!!processingState[i]}
               />
           ))}
       </div>
 
-      {/* Footer: Added rounded-b-lg and overflow-hidden for corner clipping */}
+      {/* Footer */}
       <button onClick={addInstance} className="w-full py-2 bg-slate-900 hover:bg-slate-800 text-emerald-500 hover:text-emerald-400 text-[9px] font-bold uppercase tracking-widest transition-colors flex items-center justify-center space-x-2 border-t border-emerald-900/50 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] rounded-b-lg overflow-hidden">
           <ArrowRight className="w-3 h-3" />
           <span>Add Audit Instance</span>

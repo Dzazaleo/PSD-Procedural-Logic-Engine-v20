@@ -120,6 +120,7 @@ const reconcileTerminalState = (
 
     // 2. STALE GUARD:
     // If store has a newer generation ID than incoming, reject the update.
+    // NOTE: This allows Equal IDs to pass through (essential for geometric refinements of the same asset)
     if (currentPayload?.generationId && incomingPayload.generationId && incomingPayload.generationId < currentPayload.generationId) {
         return currentPayload;
     }
@@ -213,8 +214,6 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     let sanitizedContext = context;
 
     // Check Logic Gate: Is generation permitted?
-    // We check specifically if allowed is FALSE. Undefined implies allowed (default).
-    // Or we can be strict. Let's assume explicit disablement is required to trigger stripping.
     const isGenerationDisallowed = context.generationAllowed === false || context.aiStrategy?.generationAllowed === false;
 
     if (isGenerationDisallowed) {
@@ -267,14 +266,11 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
       let effectivePayload = { ...payload };
 
       // Phase 4A: Cascaded Generation Blocking (Master Override)
-      // If the master gate is explicitly CLOSED (false), we enforce it immediately on the registry logic.
       if (masterOverride === false) {
           effectivePayload.generationAllowed = false;
-          // Note: setting generationAllowed=false triggers the cleanup logic inside reconcileTerminalState
       }
 
       // APPLY RECONCILIATION MIDDLEWARE
-      // This enforces logic gates and state transitions
       const reconciledPayload = reconcileTerminalState(effectivePayload, currentPayload);
 
       // Deep equality check optimization
@@ -297,11 +293,14 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
         const nodeRecord = prev[nodeId] || {};
         const currentPayload = nodeRecord[handleId];
         
-        // Enforce Polished Flag for CARO output
+        // --- CRITICAL EXPORT GATE ---
+        // Enforce 'isPolished' Flag for CARO output.
+        // This validates that the payload has passed through the Reviewer/Audit node.
         const effectivePayload = { ...payload, isPolished: true };
 
-        // Use same reconciliation logic as standard payloads to handle generation IDs and stale updates
-        // This ensures downstream stability even for micro-adjustments
+        // Use same reconciliation logic as standard payloads to handle generation IDs and stale updates.
+        // NOTE: Even if generationId matches (e.g. refining geometry of the same AI asset), 
+        // the changed 'layers' coords in effectivePayload will bypass the equality check below.
         const reconciledPayload = reconcileTerminalState(effectivePayload, currentPayload);
 
         if (currentPayload && JSON.stringify(currentPayload) === JSON.stringify(reconciledPayload)) {
@@ -318,7 +317,6 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     });
   }, []);
 
-  // New: Specialized Registry for Preview Nodes acting as "Polished" Proxies
   const registerPreviewPayload = useCallback((nodeId: string, handleId: string, payload: TransformedPayload, renderUrl: string) => {
     // 1. Store Render in Preview Registry (Visual State Only)
     setPreviewRegistry(prev => {
@@ -336,18 +334,11 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
         const nodeRecord = prev[nodeId] || {};
         const currentPayload = nodeRecord[handleId];
 
-        // CRITICAL DATA INTEGRITY FIX:
-        // Do NOT overwrite 'previewUrl' with 'renderUrl'.
-        // 'payload.previewUrl' contains the original, clean AI texture (ghost asset) needed for Export.
-        // 'renderUrl' is the full composite (pixels + ghost) which is only for UI display (stored in previewRegistry).
-        // If we overwrite here, the Export node will bake the entire composite image into the layer texture, causing recursion.
         const effectivePayload = { 
             ...payload, 
-            // previewUrl: renderUrl, // REMOVED: Registry Corruption Source
             isPolished: true       // Enforce gate
         };
 
-        // Reconcile to prevent jitter
         const reconciledPayload = reconcileTerminalState(effectivePayload, currentPayload);
 
         if (currentPayload && JSON.stringify(currentPayload) === JSON.stringify(reconciledPayload)) {
@@ -450,27 +441,23 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
     setReviewerRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
     setAnalysisRegistry(prev => { const { [nodeId]: _, ...rest } = prev; return rest; });
     
-    // Explicitly clean up Knowledge Registry to ensure stale rules don't persist
     setKnowledgeRegistry(prev => { 
         if (!prev[nodeId]) return prev;
         const { [nodeId]: _, ...rest } = prev; 
         return rest; 
     });
 
-    // Clean up Preview Registry
     setPreviewRegistry(prev => {
         if (!prev[nodeId]) return prev;
         const { [nodeId]: _, ...rest } = prev;
         return rest;
     });
     
-    // Lifecycle Force Refresh: 
-    // Increment global version to notify downstream subscribers (like Analyst Node) 
-    // that a dependency (e.g., Knowledge Node) might have been removed.
     setGlobalVersion(v => v + 1);
   }, []);
 
   // NEW: Deep Pipeline Flush to clear AI artifacts on reset
+  // Updated to ensure it clears all registry levels associated with a specific slot index
   const flushPipelineInstance = useCallback((nodeId: string, handleId: string) => {
       const clearEntry = (registry: Record<string, Record<string, any>>, setRegistry: React.Dispatch<React.SetStateAction<any>>) => {
           setRegistry((prev: Record<string, Record<string, any>>) => {
@@ -481,7 +468,14 @@ export const ProceduralStoreProvider: React.FC<{ children: React.ReactNode }> = 
       };
 
       // Atomic clearance of all downstream data sources for this specific pipeline slot
+      // Clearing resolvedRegistry triggers Remapper to reset.
       clearEntry(resolvedRegistry, setResolvedRegistry);
+      
+      // Clearing payloadRegistry signals Reviewer to reset.
+      // Note: Reviewer listens to 'payload-in-{i}' which usually maps to Remapper's 'result-out-{i}'.
+      // So flushing resolvedRegistry (source for Remapper) cascades to Remapper output flush.
+      
+      // Explicitly clear direct payloads if any
       clearEntry(payloadRegistry, setPayloadRegistry);
       clearEntry(reviewerRegistry, setReviewerRegistry);
       clearEntry(previewRegistry, setPreviewRegistry);

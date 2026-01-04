@@ -193,6 +193,14 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
       const reviewerData = reviewerRegistry[edge.source];
       let payload = reviewerData ? reviewerData[edge.sourceHandle || ''] : undefined;
 
+      // STRICT GATE CHECK: Payload MUST have isPolished: true
+      if (payload && !payload.isPolished) {
+          // This happens if a node somehow registered to reviewerRegistry without the flag (should be impossible via store)
+          // or if logic bypassed the store.
+          errors.push(`Slot '${slotName}': DATA_INTEGRITY_FAIL. Payload lacks 'isPolished' signature.`);
+          payload = undefined;
+      }
+
       // B. Fallback / Gate Check
       if (!payload) {
           // If connection exists but no reviewer data, check if it came from a legacy source (Remapper/Resolver)
@@ -232,8 +240,6 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
   const isExportReady = isTemplateReady && filledSlots > 0 && validationErrors.length === 0;
 
   // 4. Force Handle Update on Layout Change
-  // When the number of slots changes, the node height changes. 
-  // We must notify React Flow to recalculate handle positions.
   useEffect(() => {
     updateNodeInternals(id);
   }, [id, containers.length, validationErrors.length, updateNodeInternals]);
@@ -496,7 +502,7 @@ export const ExportPSDNode = memo(({ id }: NodeProps) => {
          </div>
       </div>
 
-      {/* Dynamic Slots Area - UPDATED: Removed fixed height and overflow to allow vertical expansion */}
+      {/* Dynamic Slots Area */}
       <div className="bg-slate-900 p-2 space-y-1 flex flex-col">
           {!isTemplateReady ? (
               <div className="text-[10px] text-slate-500 text-center py-4 border border-dashed border-slate-800 rounded mx-2 my-2">

@@ -4,7 +4,7 @@ import { PSDNodeData, LayoutStrategy, SerializableLayer, ChatMessage, AnalystIns
 import { useProceduralStore } from '../store/ProceduralContext';
 import { getSemanticThemeObject, findLayerByPath } from '../services/psdService';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Brain, BrainCircuit, Ban, ClipboardList, AlertCircle, RefreshCw, RotateCcw } from 'lucide-react';
+import { Brain, BrainCircuit, Ban, ClipboardList, AlertCircle, RefreshCw, RotateCcw, Play } from 'lucide-react';
 import { Psd } from 'ag-psd';
 
 // Define the exact union type for model keys to match PSDNodeData
@@ -152,15 +152,9 @@ const StrategyCard: React.FC<{ strategy: LayoutStrategy, modelConfig: ModelConfi
     );
 };
 
-// ... (Rest of component structure remains similar, focusing changes on the AI Logic)
-
 const InstanceRow: React.FC<any> = ({ 
-    nodeId, index, state, sourceData, targetData, onAnalyze, onRefine, onModelChange, onToggleMute, onReset, isAnalyzing, compactMode, activeKnowledge 
+    nodeId, index, state, sourceData, targetData, onAnalyze, onModelChange, onToggleMute, onReset, isAnalyzing, compactMode, activeKnowledge 
 }) => {
-    // ... (UI Code same as previous, abbreviated for clarity)
-    // ...
-    // ...
-    const [inputText, setInputText] = useState('');
     const chatContainerRef = useRef<HTMLDivElement>(null);
     const activeModelConfig = MODELS[state.selectedModel as ModelKey];
     const isReady = !!sourceData && !!targetData;
@@ -192,14 +186,6 @@ const InstanceRow: React.FC<any> = ({
         };
     }, []);
     
-    // ... (Handle Refine, Scroll Logic) ...
-    const handleRefineClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!inputText.trim()) return;
-        onRefine(index, inputText);
-        setInputText('');
-    };
-
     const getPreviewStyle = (w: number, h: number, color: string) => {
         const maxDim = compactMode ? 24 : 32; 
         const ratio = w / h;
@@ -271,7 +257,6 @@ const InstanceRow: React.FC<any> = ({
 
             {/* Content Area */}
             <div className={`p-3 space-y-3 ${compactMode ? 'text-[10px]' : ''}`}>
-                 {/* ... (Visual Wiring - Same as previous) ... */}
                  <div className="flex items-center justify-between bg-slate-900/40 rounded p-2 border border-slate-700/30 relative min-h-[60px] overflow-visible">
                     
                     {/* Left Inputs (Source + Target) */}
@@ -312,7 +297,7 @@ const InstanceRow: React.FC<any> = ({
                     </div>
                 </div>
 
-                {/* Chat Console */}
+                {/* Strategy Log (Read-Only) */}
                 <div 
                     ref={chatContainerRef} 
                     className={`nodrag nopan ${compactMode ? 'h-48' : 'h-64'} overflow-y-auto border border-slate-700 bg-slate-900 rounded p-3 space-y-3 custom-scrollbar transition-all shadow-inner cursor-auto`} 
@@ -362,13 +347,21 @@ const InstanceRow: React.FC<any> = ({
                     )}
                 </div>
 
-                {/* Control Footer */}
+                {/* Control Footer (No Input) */}
                 <div className="flex items-center space-x-2 pt-2 border-t border-slate-700/30">
-                     <textarea value={inputText} onChange={(e) => setInputText(e.target.value)} onWheel={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} placeholder="Refinement instructions..." disabled={!isReady || isAnalyzing} className="nodrag nopan flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-xs text-slate-200 focus:outline-none focus:border-indigo-500 resize-none h-10 transition-colors" />
-                     <div className="flex space-x-2">
-                        <button onClick={(e) => { e.stopPropagation(); onAnalyze(index); }} onMouseDown={(e) => e.stopPropagation()} disabled={!isReady || isAnalyzing} className={`nodrag nopan h-10 px-4 rounded text-[10px] font-bold uppercase transition-all shadow-sm flex items-center justify-center ${isReady && !isAnalyzing ? 'bg-slate-700 hover:bg-slate-600 text-white border border-slate-600' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}>Analyze</button>
-                        <button onClick={handleRefineClick} onMouseDown={(e) => e.stopPropagation()} disabled={!isReady || isAnalyzing || inputText.trim().length === 0} className={`nodrag nopan h-10 px-4 rounded text-[10px] font-bold uppercase transition-all shadow-sm flex items-center justify-center ${inputText.trim().length > 0 && !isAnalyzing ? 'bg-indigo-600 hover:bg-indigo-500 text-white border border-indigo-400' : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'}`}>Refine</button>
-                     </div>
+                     <button 
+                        onClick={(e) => { e.stopPropagation(); onAnalyze(index); }} 
+                        onMouseDown={(e) => e.stopPropagation()} 
+                        disabled={!isReady || isAnalyzing} 
+                        className={`nodrag nopan h-9 w-full rounded text-[10px] font-bold uppercase tracking-wider transition-all shadow-lg flex items-center justify-center space-x-2 
+                            ${isReady && !isAnalyzing 
+                                ? 'bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-400 text-white border border-indigo-400/50' 
+                                : 'bg-slate-800 text-slate-600 cursor-not-allowed border border-slate-700'
+                            }`}
+                     >
+                        <Play className="w-3 h-3 fill-current" />
+                        <span>Run Design Analysis</span>
+                     </button>
                 </div>
             </div>
         </div>
@@ -440,10 +433,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
   }, [edges, id, templateRegistry]);
 
   // UPDATED: Surgical Vision Logic (Isolation Aware)
-  // Accepts optional targetLayerId to isolate specific background/texture layers.
-  // Logic: When targetLayerId is provided, we use the direct path to access the layer in the PSD
-  // and render ONLY that layer, bypassing the recursive 'drawLayers' loop that handles full composition.
-  // This effectively skips every other layer that does not match the ID.
   const extractSourcePixels = async (
       layers: SerializableLayer[], 
       bounds: {x: number, y: number, w: number, h: number},
@@ -511,6 +500,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
 
         if (sourceData) {
             const history = instanceState.chatHistory || [];
+            // Basic detection for initial prompt keywords (though simplified now)
             const hasExplicitKeywords = history.some(msg => msg.role === 'user' && /\b(generate|recreate|nano banana)\b/i.test(msg.parts[0].text));
             
             const augmentedContext: MappingContext = {
@@ -716,9 +706,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         ` + prompt;
     }
     
-    if (isRefining) {
-        prompt += `\n\nUSER REFINEMENT: Adjust the 'overrides' based on user feedback while maintaining the Expert Designer persona and non-destructive rules.`;
-    }
     return prompt;
   };
 
@@ -739,7 +726,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         if (!apiKey) throw new Error("API_KEY missing");
 
         const ai = new GoogleGenAI({ apiKey });
-        const systemInstruction = generateSystemInstruction(sourceData, targetData, history.length > 1, effectiveKnowledge);
+        const systemInstruction = generateSystemInstruction(sourceData, targetData, false, effectiveKnowledge);
         // Default: Full Context
         const sourcePixelsBase64 = await extractSourcePixels(sourceData.layers as SerializableLayer[], sourceData.container.bounds);
 
@@ -868,7 +855,9 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
         
         updateInstanceState(index, { chatHistory: finalHistory, layoutStrategy: json });
 
+        // Basic detection for initial prompt keywords (though simplified now)
         const isExplicitIntent = history.some(msg => msg.role === 'user' && /\b(generate|recreate|nano banana)\b/i.test(msg.parts[0].text));
+        
         const augmentedContext: MappingContext = {
             ...sourceData,
             aiStrategy: { ...json, isExplicitIntent },
@@ -900,7 +889,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
       }
   };
 
-  // ... (Rest of Component - handleAnalyze, handleRefine, Render)
   const handleAnalyze = (index: number) => {
       const initialMsg: ChatMessage = {
           id: Date.now().toString(),
@@ -910,19 +898,6 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
       };
       updateInstanceState(index, { chatHistory: [initialMsg] });
       performAnalysis(index, [initialMsg]);
-  };
-
-  const handleRefine = (index: number, text: string) => {
-      const currentHistory = analystInstances[index]?.chatHistory || [];
-      const userMsg: ChatMessage = {
-          id: Date.now().toString(),
-          role: 'user',
-          parts: [{ text }],
-          timestamp: Date.now()
-      };
-      const updatedHistory = [...currentHistory, userMsg];
-      updateInstanceState(index, { chatHistory: updatedHistory });
-      performAnalysis(index, updatedHistory);
   };
 
   return (
@@ -961,7 +936,7 @@ export const DesignAnalystNode = memo(({ id, data }: NodeProps<PSDNodeData>) => 
               return (
                   <InstanceRow 
                       key={i} nodeId={id} index={i} state={state} sourceData={getSourceData(i)} targetData={getTargetData(i)}
-                      onAnalyze={handleAnalyze} onRefine={handleRefine} onModelChange={handleModelChange} onToggleMute={handleToggleMute} onReset={handleReset}
+                      onAnalyze={handleAnalyze} onModelChange={handleModelChange} onToggleMute={handleToggleMute} onReset={handleReset}
                       isAnalyzing={!!analyzingInstances[i]} compactMode={instanceCount > 1}
                       activeKnowledge={activeKnowledge}
                   />
